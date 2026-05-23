@@ -60,7 +60,7 @@ export default function SupportPromptModal() {
         <p className="mb-8 px-2 text-center text-[15px] leading-relaxed text-gray-500 dark:text-gray-400">
           你已经成功生成了超过 <strong className="font-semibold text-gray-800 dark:text-gray-200">50</strong> 张图片！<br />
           如果这个工具对你有所帮助，<br />
-          欢迎赞助作者，或反馈分享你的建议。
+          欢迎赞助原作者，或反馈分享你的建议。
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -74,10 +74,10 @@ export default function SupportPromptModal() {
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
             </svg>
-            赞助作者
+            赞助原作者
           </a>
           <a
-            href="https://github.com/CookSleep/gpt_image_playground/issues"
+            href="https://github.com/Ali-Aria/amazon-image-studio/issues"
             target="_blank"
             rel="noopener noreferrer"
             onClick={dismissSupportPrompt}
