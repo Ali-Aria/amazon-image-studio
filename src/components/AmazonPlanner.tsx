@@ -10,9 +10,14 @@ import {
 import {
   buildAmazonAPlusPlanPrompt,
   buildAmazonPlanPrompt,
+  formatAPlusModuleText,
+  getAPlusContentTypeLabel,
+  getAPlusModuleDisplayName,
+  getAPlusModuleEnglishName,
   getAPlusModuleGenerationSize,
   getAPlusModuleSpecs,
   getAPlusModuleUploadSize,
+  isAPlusTextModule,
   withAPlusGenerationSizes,
   type APlusContentType,
   type AmazonAPlusPlan,
@@ -67,8 +72,9 @@ function getAmazonAPlusComplianceChecks(
   aPlusType: APlusContentType,
   referenceImageCount: number,
 ): Array<{ label: string; status: ComplianceStatus; detail: string }> {
+  const copyText = [plan?.copy, plan?.textTitle, plan?.textBody].filter(Boolean).join('\n')
   const riskyCopy = /(?:\bfree\b|\bdiscount\b|\bcoupon\b|\bsale\b|\bbest seller\b|\breview\b|\brating\b|\bstar\b|\bprime\b|\bamazon\b|\bguarantee\b|\bcheap\b|\bprice\b|\$|%|qr|www\.|https?:\/\/|@|phone|email)/i
-    .test(plan?.copy ?? '')
+    .test(copyText)
 
   return [
     {
@@ -79,7 +85,7 @@ function getAmazonAPlusComplianceChecks(
     {
       label: 'A+ 类型',
       status: 'ready',
-      detail: aPlusType === 'premium' ? 'Premium A+ 编排' : 'Standard A+ 编排',
+      detail: `${getAPlusContentTypeLabel(aPlusType)} A+ 编排`,
     },
     {
       label: 'A+ 尺寸',
@@ -116,7 +122,7 @@ export default function AmazonPlanner() {
   const [draft, setDraft] = useState<AmazonPromptDraft>(DEFAULT_AMAZON_PROMPT_DRAFT)
   const [resolution, setResolution] = useState<'2k' | '4k'>('2k')
   const [plannerMode, setPlannerMode] = useState<AmazonPlannerMode>('listing')
-  const [aPlusType, setAPlusType] = useState<APlusContentType>('standard')
+  const [aPlusType, setAPlusType] = useState<APlusContentType>('standard-large')
   const [listingText, setListingText] = useState('')
   const [imagePlans, setImagePlans] = useState<AmazonImagePlan[]>([])
   const [aPlusPlans, setAPlusPlans] = useState<AmazonAPlusPlan[]>([])
@@ -130,6 +136,7 @@ export default function AmazonPlanner() {
   const aPlusPlansWithSizes = useMemo(() => withAPlusGenerationSizes(aPlusPlans, resolutionTier), [aPlusPlans, resolutionTier])
   const selectedPlan = selectedPlanIndex == null ? null : imagePlans[selectedPlanIndex] ?? null
   const selectedAPlusPlan = selectedAPlusPlanIndex == null ? null : aPlusPlansWithSizes[selectedAPlusPlanIndex] ?? null
+  const selectedAPlusText = selectedAPlusPlan ? formatAPlusModuleText(selectedAPlusPlan) : ''
   const activePrompt = plannerMode === 'aplus'
     ? selectedAPlusPlan ? buildAmazonAPlusPlanPrompt(selectedAPlusPlan) : ''
     : selectedPlan ? buildAmazonPlanPrompt(selectedPlan) : generatedPrompt
@@ -205,6 +212,20 @@ export default function AmazonPlanner() {
       showToast('提示词已复制', 'success')
     } catch {
       showToast('复制失败，请手动选择提示词', 'error')
+    }
+  }
+
+  const copyAPlusText = async () => {
+    if (!selectedAPlusText.trim()) {
+      showToast('当前 A+ 模块没有可复制文案', 'error')
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(selectedAPlusText)
+      showToast('A+ 文案已复制', 'success')
+    } catch {
+      showToast('复制失败，请手动选择文案', 'error')
     }
   }
 
@@ -445,7 +466,7 @@ export default function AmazonPlanner() {
                 </div>
                 <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                   {plannerMode === 'aplus'
-                    ? '粘贴标题、五点描述或品牌说明，生成 Standard / Premium A+ 模块编排和英文提示词。'
+                    ? '粘贴标题、五点描述或品牌说明，生成 Standard / 大图版 / Premium A+ 模块编排和英文提示词。'
                     : '粘贴标题、五点描述或产品说明，生成 Main + PT01-PT06 的逐张方案和英文提示词。'}
                 </div>
               </div>
@@ -456,6 +477,7 @@ export default function AmazonPlanner() {
             {plannerMode === 'aplus' && (
               <div className="mt-3 inline-flex rounded-xl border border-gray-200 bg-gray-100 p-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
                 {([
+                  ['standard-large', '大图版'],
                   ['standard', 'Standard'],
                   ['premium', 'Premium'],
                 ] as const).map(([type, label]) => (
@@ -848,6 +870,7 @@ export default function AmazonPlanner() {
               <div className={PLAN_LIST_CLASS}>
                 {aPlusPlansWithSizes.map((plan, index) => {
                   const isSelected = selectedAPlusPlanIndex === index
+                  const externalText = formatAPlusModuleText(plan)
                   return (
                     <button
                       key={`${plan.slot}-${index}`}
@@ -859,8 +882,8 @@ export default function AmazonPlanner() {
                         <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 dark:bg-white/[0.08] dark:text-gray-300'}`}>
                           {plan.slot}
                         </span>
-                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{plan.label}</span>
-                        <span className="text-xs text-gray-400">{plan.moduleType}</span>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{getAPlusModuleDisplayName(plan)}</span>
+                        <span className="text-xs text-gray-400">{getAPlusModuleEnglishName(plan)}</span>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-500 dark:text-gray-400">
                         <span className="rounded-md bg-white/70 px-2 py-0.5 dark:bg-white/[0.05]">上传 {plan.uploadSize}</span>
@@ -868,9 +891,15 @@ export default function AmazonPlanner() {
                       </div>
                       <div className="mt-2 text-xs leading-relaxed text-gray-600 dark:text-gray-300">{plan.objective}</div>
                       <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{plan.concept}</div>
+                      {(isAPlusTextModule(plan) || externalText) && externalText && (
+                        <div className="mt-2 rounded-lg bg-white/70 px-2 py-1 text-xs leading-relaxed text-gray-700 dark:bg-white/[0.05] dark:text-gray-200">
+                          {plan.textTitle && <div className="font-semibold">{plan.textTitle}</div>}
+                          {plan.textBody && <div className="mt-0.5 line-clamp-2 text-gray-500 dark:text-gray-300">{plan.textBody}</div>}
+                        </div>
+                      )}
                       {plan.copy && (
                         <div className="mt-2 rounded-lg bg-white/70 px-2 py-1 text-xs text-gray-700 dark:bg-white/[0.05] dark:text-gray-200">
-                          文案：{plan.copy}
+                          图内文字：{plan.copy}
                         </div>
                       )}
                       {plan.compliance && (
@@ -890,7 +919,7 @@ export default function AmazonPlanner() {
                 <div>
                   <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">A+ 模块编排</div>
                   <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                    当前选择 {aPlusType === 'premium' ? 'Premium' : 'Standard'}，点击 AI策划A+ 后生成逐模块方案。
+                    当前选择 {getAPlusContentTypeLabel(aPlusType)}，点击 AI策划A+ 后生成逐模块方案。
                   </div>
                 </div>
                 <span className="shrink-0 rounded-lg bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
@@ -904,10 +933,12 @@ export default function AmazonPlanner() {
                       <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-bold text-gray-600 dark:bg-white/[0.08] dark:text-gray-300">
                         {spec.slot}
                       </span>
-                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{spec.label}</span>
+                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{getAPlusModuleDisplayName(spec)}</span>
+                      <span className="text-xs text-gray-400">{getAPlusModuleEnglishName(spec)}</span>
                     </div>
                     <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
                       上传 {getAPlusModuleUploadSize(spec)} · 生成 {getAPlusModuleGenerationSize(spec, resolutionTier)}
+                      {isAPlusTextModule(spec) ? ' · 含标题/正文' : ''}
                     </div>
                   </div>
                 ))}
@@ -939,6 +970,33 @@ export default function AmazonPlanner() {
               readOnly
             />
           </div>
+          {plannerMode === 'aplus' && selectedAPlusPlan && (
+            <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/[0.08] dark:bg-gray-950">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                  A+ 文案 · {selectedAPlusPlan.slot}
+                </span>
+                <button
+                  type="button"
+                  onClick={copyAPlusText}
+                  disabled={!selectedAPlusText.trim()}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2 text-xs font-medium transition ${selectedAPlusText.trim() ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-white/[0.08] dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-white/[0.06]' : 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-300 dark:border-white/[0.04] dark:bg-white/[0.04] dark:text-gray-600'}`}
+                >
+                  <CopyIcon className="h-3.5 w-3.5" />
+                  复制文案
+                </button>
+              </div>
+              <textarea
+                value={selectedAPlusText || (isAPlusTextModule(selectedAPlusPlan) ? '该模块暂未生成标题/正文文案。' : '当前模块通常不需要外部标题/正文文案。')}
+                className="h-28 w-full resize-none rounded-lg border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-900 dark:text-gray-200"
+                spellCheck={false}
+                readOnly
+              />
+              <div className="mt-2 text-[11px] text-gray-400">
+                外部 A+ 文案用于亚马逊模块文本区，不会写入图片生成 Prompt。
+              </div>
+            </div>
+          )}
           {activePrompt.trim() && prompt.trim() && prompt !== activePrompt && (
             <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
               底部输入框已有内容，点击“填入”会用当前亚马逊提示词覆盖。

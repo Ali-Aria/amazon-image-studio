@@ -15,7 +15,7 @@ export interface TaskHistoryCategory {
   workflow: TaskWorkflow
   aspect: TaskAspect
   amazonSlot: string
-  aPlusType: 'standard' | 'premium' | ''
+  aPlusType: 'standard' | 'standard-large' | 'premium' | ''
 }
 
 export interface TaskHistoryFilters {

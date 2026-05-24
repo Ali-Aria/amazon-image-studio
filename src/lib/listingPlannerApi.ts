@@ -4,6 +4,7 @@ import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devP
 import { getApiErrorMessage } from './imageApiShared'
 import type { AmazonPromptDraft } from './amazonPrompt'
 import {
+  getAPlusContentTypeLabel,
   getAPlusModuleGenerationSize,
   getAPlusModuleSpecs,
   getAPlusModuleUploadSize,
@@ -112,11 +113,13 @@ function createAPlusPlannerSchema(aPlusType: APlusContentType) {
             objective: { type: 'string' },
             concept: { type: 'string' },
             copy: { type: 'string' },
+            textTitle: { type: 'string' },
+            textBody: { type: 'string' },
             compliance: { type: 'string' },
             scene: { type: 'string' },
             prompt: { type: 'string' },
           },
-          required: ['slot', 'label', 'moduleType', 'objective', 'concept', 'copy', 'compliance', 'scene', 'prompt'],
+          required: ['slot', 'label', 'moduleType', 'objective', 'concept', 'copy', 'textTitle', 'textBody', 'compliance', 'scene', 'prompt'],
         },
       },
     },
@@ -345,6 +348,8 @@ function normalizeAPlusPlan(
     objective: plan?.objective || spec.objective,
     concept: plan?.concept || '',
     copy: plan?.copy || '',
+    textTitle: plan?.textTitle || '',
+    textBody: plan?.textBody || '',
     compliance: plan?.compliance || '',
     scene: plan?.scene || '',
     prompt: plan?.prompt || '',
@@ -387,15 +392,32 @@ function buildListingPlannerInstructions(baseDraft: AmazonPromptDraft) {
   ].filter(Boolean).join('\n')
 }
 
+function getAPlusPlannerTypeName(aPlusType: APlusContentType) {
+  switch (aPlusType) {
+    case 'premium':
+      return 'Premium A+ Content'
+    case 'standard-large':
+      return 'Standard A+ Content large-image template'
+    default:
+      return 'Standard A+ Content'
+  }
+}
+
 function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: APlusContentType) {
   const specs = getAPlusModuleSpecs(aPlusType)
-  const typeLabel = aPlusType === 'premium' ? 'Premium A+ Content' : 'Standard A+ Content'
+  const typeLabel = getAPlusPlannerTypeName(aPlusType)
   return [
     'You are a senior Amazon US A+ Content visual director with 10 years of marketplace conversion design experience.',
     `Create a ${typeLabel} image module plan. Do not generate images. Only return JSON matching the schema.`,
     `Return exactly ${specs.length} modules in this order: ${specs.map((spec) => `${spec.slot} ${spec.label} ${getAPlusModuleUploadSize(spec)}px`).join('; ')}.`,
     'A+ images must be unique to the product and brand story; avoid repeating the exact same gallery images.',
-    'Each module must include a concise Chinese label, objective, visual concept, mobile-readable on-image copy if useful, compliance statement, scene direction, and a professional English image-generation prompt.',
+    aPlusType === 'standard-large'
+      ? 'For this large-image template, create one 970x300 header banner and four 970x600 single-image modules. Do not add Highlight Tile modules.'
+      : '',
+    'Each module must include a concise Chinese label, objective, visual concept, mobile-readable on-image copy only if it should be rendered inside the image, optional external A+ textTitle/textBody, compliance statement, scene direction, and a professional English image-generation prompt.',
+    'For Standard Highlight Tile modules (A+S05-A+S08), write textTitle as a short US-English benefit headline and textBody as 1-2 concise US-English sentences for the text area beside or below the 220x220 image.',
+    'For non Highlight Tile modules, leave textTitle and textBody empty unless the module genuinely needs separate text outside the image.',
+    'Image-generation prompts must not render textTitle/textBody as on-image text. Use copy only for text that belongs inside the generated image, and prefer empty copy for 220x220 Highlight Tile images.',
     'A+ compliance: RGB image, clear and non-blurry, no watermark, no tiny unreadable text, no prices, promotions, discounts, coupons, free shipping, QR codes, phone numbers, email addresses, external URLs, customer reviews, star ratings, Amazon/Prime/Alexa/Amazon Choice/Best Seller badges, competitor mentions, unsupported guarantees, or unsubstantiated medical/eco claims.',
     'Use a cohesive commercial visual system across modules: consistent lighting, color palette, product scale, typography direction, and truthful included accessories.',
     'Prompts should describe the intended module composition and leave enough safe area for final A+ cropping.',
@@ -415,7 +437,7 @@ function buildPlannerInputText(listingText: string, mode: AmazonPlannerMode, aPl
   if (mode === 'aplus') {
     const specs = getAPlusModuleSpecs(aPlusType)
     return [
-      `Parse this Amazon listing copy and produce the ${aPlusType === 'premium' ? 'Premium' : 'Standard'} A+ Content module plan.`,
+      `Parse this Amazon listing copy and produce the ${getAPlusContentTypeLabel(aPlusType)} A+ Content module plan.`,
       'Use the title and bullet points from the pasted text. If a field is uncertain, infer conservatively from the listing.',
       `Use these A+ modules exactly: ${specs.map((spec) => spec.slot).join(', ')}.`,
       '',
@@ -442,7 +464,7 @@ export async function callAmazonPlannerApi(options: {
 }): Promise<PlannerApiResult> {
   const model = options.model?.trim() || options.profile.model.trim() || DEFAULT_RESPONSES_MODEL
   const mode = options.mode ?? 'listing'
-  const aPlusType = options.aPlusType ?? 'standard'
+  const aPlusType = options.aPlusType ?? 'standard-large'
   const aPlusGenerationTier = options.aPlusGenerationTier ?? '2K'
   const schema = mode === 'aplus' ? createAPlusPlannerSchema(aPlusType) : LISTING_PLANNER_SCHEMA
   const proxyConfig = readClientDevProxyConfig()

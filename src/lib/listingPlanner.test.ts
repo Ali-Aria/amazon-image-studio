@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultOpenAIProfile } from './apiProfiles'
 import { DEFAULT_AMAZON_PROMPT_DRAFT } from './amazonPrompt'
-import { buildAmazonAPlusPlanPrompt, buildAmazonPlanPrompt } from './listingPlanner'
+import {
+  buildAmazonAPlusPlanPrompt,
+  buildAmazonPlanPrompt,
+  formatAPlusModuleText,
+  getAPlusContentTypeLabel,
+  getAPlusModuleDisplayName,
+  getAPlusModuleEnglishName,
+  getAPlusModuleSpecs,
+} from './listingPlanner'
 import { callAmazonPlannerApi } from './listingPlannerApi'
 
 const SAMPLE_LISTING = [
@@ -77,6 +85,45 @@ describe('buildAmazonAPlusPlanPrompt', () => {
     expect(prompt).toContain('Built for Rainy Commutes\nCompact Coverage')
     expect(prompt).toContain('Do not include prices')
   })
+
+  it('keeps external A+ text out of the image generation prompt', () => {
+    const plan = {
+      moduleType: 'highlight-tile' as const,
+      uploadSize: '220x220',
+      generationSize: '2048x2048',
+      copy: '',
+      textTitle: 'Built for Daily Commutes',
+      textBody: 'Soft padding protects essentials while the zipper keeps supplies secure.',
+      prompt: 'Create a clean 220x220 product highlight tile.',
+    }
+
+    const prompt = buildAmazonAPlusPlanPrompt(plan)
+
+    expect(prompt).toContain('Create a clean 220x220 product highlight tile.')
+    expect(prompt).not.toContain(plan.textTitle)
+    expect(prompt).not.toContain(plan.textBody)
+    expect(prompt).toContain('Do not add on-image text')
+  })
+})
+
+describe('A+ module labels and text', () => {
+  it('returns local Chinese module names while preserving English labels', () => {
+    const highlightSpec = getAPlusModuleSpecs('standard')[4]!
+    const premiumSpec = getAPlusModuleSpecs('premium')[0]!
+
+    expect(getAPlusModuleDisplayName(highlightSpec)).toBe('卖点方块 1')
+    expect(getAPlusModuleEnglishName(highlightSpec)).toBe('Highlight Tile 1')
+    expect(getAPlusModuleDisplayName(premiumSpec)).toBe('高级首屏横幅')
+    expect(getAPlusModuleEnglishName(premiumSpec)).toBe('Hero Banner')
+    expect(getAPlusContentTypeLabel('standard-large')).toBe('大图版')
+  })
+
+  it('formats external A+ module copy without mixing it with on-image copy', () => {
+    expect(formatAPlusModuleText({
+      textTitle: 'Organized in Seconds',
+      textBody: 'Elastic loops keep pens, pencils, and small tools easy to find.',
+    })).toBe('Organized in Seconds\n\nElastic loops keep pens, pencils, and small tools easy to find.')
+  })
 })
 
 function createApiPlans() {
@@ -108,27 +155,33 @@ function createApiPayload(title = 'AI planned tumbler') {
   }
 }
 
-function createAPlusPlans(prefix: 'A+S' | 'A+P') {
+function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P') {
   const slots = prefix === 'A+S'
     ? ['A+S01', 'A+S02', 'A+S03', 'A+S04', 'A+S05', 'A+S06', 'A+S07', 'A+S08']
-    : ['A+P01', 'A+P02', 'A+P03', 'A+P04', 'A+P05', 'A+P06']
+    : prefix === 'A+L'
+      ? ['A+L01', 'A+L02', 'A+L03', 'A+L04', 'A+L05']
+      : ['A+P01', 'A+P02', 'A+P03', 'A+P04', 'A+P05', 'A+P06']
 
   return slots.map((slot, index) => ({
     slot,
     label: `${slot} 模块`,
     moduleType: prefix === 'A+S'
       ? index === 0 ? 'header-banner' : index < 4 ? 'single-image' : 'highlight-tile'
-      : index === 0 ? 'hero-banner' : index < 4 ? 'feature-image' : 'brand-story',
+      : prefix === 'A+L'
+        ? index === 0 ? 'header-banner' : 'single-image'
+        : index === 0 ? 'hero-banner' : index < 4 ? 'feature-image' : 'brand-story',
     objective: `Objective ${slot}`,
     concept: `Concept ${slot}`,
     copy: `Copy ${slot}`,
+    textTitle: prefix === 'A+S' && index >= 4 ? `Benefit ${slot}` : '',
+    textBody: prefix === 'A+S' && index >= 4 ? `External A+ copy for ${slot}.` : '',
     compliance: `Compliance ${slot}`,
     scene: `Scene ${slot}`,
     prompt: `Create A+ module ${slot} for the product.`,
   }))
 }
 
-function createAPlusPayload(prefix: 'A+S' | 'A+P', title = 'AI planned A+ tumbler') {
+function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P', title = 'AI planned A+ tumbler') {
   return {
     product: {
       title,
@@ -225,6 +278,10 @@ describe('callAmazonPlannerApi', () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     expect(body.text.format.name).toBe('amazon_aplus_image_plan')
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('textTitle')
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('textBody')
+    expect(body.text.format.schema.properties.aPlusPlans.items.required).toContain('textTitle')
+    expect(body.text.format.schema.properties.aPlusPlans.items.required).toContain('textBody')
     expect(body.input[0].content[0].text).toContain('Standard A+ Content')
     expect(result.mode).toBe('aplus')
     expect(result.parsed.title).toBe('Standard A+ tumbler')
@@ -241,6 +298,52 @@ describe('callAmazonPlannerApi', () => {
       slot: 'A+S05',
       moduleType: 'highlight-tile',
       uploadSize: '220x220',
+      textTitle: 'Benefit A+S05',
+      textBody: 'External A+ copy for A+S05.',
+    })
+    expect(formatAPlusModuleText(result.aPlusPlans[4]!)).toBe('Benefit A+S05\n\nExternal A+ copy for A+S05.')
+  })
+
+  it('parses large-image A+ template output as one banner plus four big images', async () => {
+    const apiPayload = createAPlusPayload('A+L', 'Large image A+ tumbler')
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(apiPayload),
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
+      mode: 'aplus',
+      aPlusType: 'standard-large',
+      aPlusGenerationTier: '2K',
+    })
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.input[0].content[0].text).toContain('大图版 A+ Content')
+    expect(body.instructions).toContain('one 970x300 header banner and four 970x600 single-image modules')
+    expect(result.mode).toBe('aplus')
+    expect(result.aPlusType).toBe('standard-large')
+    expect(result.aPlusPlans).toHaveLength(5)
+    expect(result.aPlusPlans[0]).toMatchObject({
+      slot: 'A+L01',
+      moduleType: 'header-banner',
+      uploadSize: '970x300',
+    })
+    expect(result.aPlusPlans.slice(1).every((plan) => plan.moduleType === 'single-image')).toBe(true)
+    expect(result.aPlusPlans[4]).toMatchObject({
+      slot: 'A+L05',
+      moduleType: 'single-image',
+      uploadSize: '970x600',
     })
   })
 

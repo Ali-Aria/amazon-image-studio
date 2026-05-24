@@ -212,7 +212,7 @@ export interface TaskRecord {
     productTitle?: string
     workflow?: TaskWorkflow
     amazonSlot?: string
-    aPlusType?: 'standard' | 'premium'
+    aPlusType?: 'standard' | 'standard-large' | 'premium'
   }
 }
 
