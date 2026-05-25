@@ -170,12 +170,14 @@ export const OPTIONAL_A_PLUS_MODULE_SPECS: AmazonAPlusModuleSpec[] = [
   },
 ]
 
-function normalizeOnImageCopy(copy: string): string {
+const CJK_ON_IMAGE_TEXT_RE = /[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/
+
+export function normalizeOnImageCopy(copy: string): string {
   return copy
     .replace(/\\n/g, '\n')
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean)
+    .filter((line) => line && !CJK_ON_IMAGE_TEXT_RE.test(line))
     .join('\n')
 }
 

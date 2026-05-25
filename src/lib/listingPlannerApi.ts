@@ -8,6 +8,7 @@ import {
   getAPlusModuleGenerationSize,
   getAPlusModuleSpecs,
   getAPlusModuleUploadSize,
+  normalizeOnImageCopy,
   type APlusContentType,
   type AmazonAPlusPlan,
   type AmazonImagePlan,
@@ -60,6 +61,21 @@ const SELLING_POINTS_SCHEMA = {
   items: { type: 'string' },
 } as const
 
+const CHINESE_LABEL_SCHEMA = {
+  type: 'string',
+  description: 'Concise Simplified Chinese label for UI display.',
+} as const
+
+const ENGLISH_ON_IMAGE_COPY_SCHEMA = {
+  type: 'string',
+  description: 'Short natural US-English on-image text only, or an empty string. This value is injected verbatim into the image-generation prompt; never include Chinese characters.',
+} as const
+
+const ENGLISH_IMAGE_PROMPT_SCHEMA = {
+  type: 'string',
+  description: 'Professional English image-generation prompt only. Never include Chinese characters.',
+} as const
+
 const LISTING_PLANNER_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -75,14 +91,14 @@ const LISTING_PLANNER_SCHEMA = {
         additionalProperties: false,
         properties: {
           slot: { type: 'string', enum: ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06'] },
-          label: { type: 'string' },
+          label: CHINESE_LABEL_SCHEMA,
           kind: { type: 'string', enum: ['main', 'lifestyle', 'detail', 'scale', 'bundle', 'steps'] },
           objective: { type: 'string' },
           concept: { type: 'string' },
-          copy: { type: 'string' },
+          copy: ENGLISH_ON_IMAGE_COPY_SCHEMA,
           compliance: { type: 'string' },
           scene: { type: 'string' },
-          prompt: { type: 'string' },
+          prompt: ENGLISH_IMAGE_PROMPT_SCHEMA,
         },
         required: ['slot', 'label', 'kind', 'objective', 'concept', 'copy', 'compliance', 'scene', 'prompt'],
       },
@@ -108,16 +124,16 @@ function createAPlusPlannerSchema(aPlusType: APlusContentType) {
           additionalProperties: false,
           properties: {
             slot: { type: 'string', enum: specs.map((spec) => spec.slot) },
-            label: { type: 'string' },
+            label: CHINESE_LABEL_SCHEMA,
             moduleType: { type: 'string', enum: Array.from(new Set(specs.map((spec) => spec.moduleType))) },
             objective: { type: 'string' },
             concept: { type: 'string' },
-            copy: { type: 'string' },
+            copy: ENGLISH_ON_IMAGE_COPY_SCHEMA,
             textTitle: { type: 'string' },
             textBody: { type: 'string' },
             compliance: { type: 'string' },
             scene: { type: 'string' },
-            prompt: { type: 'string' },
+            prompt: ENGLISH_IMAGE_PROMPT_SCHEMA,
           },
           required: ['slot', 'label', 'moduleType', 'objective', 'concept', 'copy', 'textTitle', 'textBody', 'compliance', 'scene', 'prompt'],
         },
@@ -284,7 +300,7 @@ function normalizePlan(plan: AmazonImagePlan, index: number): AmazonImagePlan {
     kind: plan.kind,
     objective: plan.objective || '',
     concept: plan.concept || '',
-    copy: plan.copy || '',
+    copy: normalizeOnImageCopy(plan.copy || ''),
     compliance: plan.compliance || '',
     scene: plan.scene || '',
     prompt: plan.prompt || '',
@@ -347,7 +363,7 @@ function normalizeAPlusPlan(
     generationSize: getAPlusModuleGenerationSize(spec, tier),
     objective: plan?.objective || spec.objective,
     concept: plan?.concept || '',
-    copy: plan?.copy || '',
+    copy: normalizeOnImageCopy(plan?.copy || ''),
     textTitle: plan?.textTitle || '',
     textBody: plan?.textBody || '',
     compliance: plan?.compliance || '',
@@ -385,6 +401,7 @@ function buildListingPlannerInstructions(baseDraft: AmazonPromptDraft) {
     'Create a conversion-focused image plan for exactly 7 Amazon listing images: MAIN, PT01, PT02, PT03, PT04, PT05, PT06.',
     'Strictly follow Amazon image compliance: main image must be pure white RGB 255,255,255, product fills about 85% of frame, no text, no logos, no watermark, no props. Secondary images must not include Amazon/Prime/Alexa/Amazon Choice/Best Seller/hot sale badges, reviews, star ratings, pricing, coupons, shipping claims, or unsupported claims.',
     'Each image plan must include a concise Chinese label, objective, visual concept, on-image copy if useful, compliance statement, scene direction, and a professional English image-generation prompt.',
+    'Field language rules are strict: label must be Simplified Chinese; copy must be short natural US-English on-image text or an empty string; prompt must be fully English. Never output Chinese characters in copy or prompt, even if the source listing is Chinese.',
     'The MAIN prompt must include exactly this mandatory phrase: on a seamless pure white background RGB 255, 255, 255, professional studio lighting, product takes up 85% of the frame, high resolution, photorealistic.',
     'Do not generate images. Only return JSON matching the schema.',
     baseDraft.category ? `Known category: ${baseDraft.category}` : '',
@@ -415,6 +432,7 @@ function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: 
       ? 'For this large-image template, create one 970x300 header banner and four 970x600 single-image modules. Do not add Highlight Tile modules.'
       : '',
     'Each module must include a concise Chinese label, objective, visual concept, mobile-readable on-image copy only if it should be rendered inside the image, optional external A+ textTitle/textBody, compliance statement, scene direction, and a professional English image-generation prompt.',
+    'Field language rules are strict: label must be Simplified Chinese; copy, textTitle, and textBody must be short natural US-English text or empty strings; prompt must be fully English. Never output Chinese characters in copy or prompt, even if the source listing is Chinese.',
     'For Standard Highlight Tile modules (A+S05-A+S08), write textTitle as a short US-English benefit headline and textBody as 1-2 concise US-English sentences for the text area beside or below the 220x220 image.',
     'For non Highlight Tile modules, leave textTitle and textBody empty unless the module genuinely needs separate text outside the image.',
     'Image-generation prompts must not render textTitle/textBody as on-image text. Use copy only for text that belongs inside the generated image, and prefer empty copy for 220x220 Highlight Tile images.',

@@ -9,6 +9,7 @@ import {
   getAPlusModuleDisplayName,
   getAPlusModuleEnglishName,
   getAPlusModuleSpecs,
+  normalizeOnImageCopy,
 } from './listingPlanner'
 import { callAmazonPlannerApi } from './listingPlannerApi'
 
@@ -65,6 +66,18 @@ describe('buildAmazonPlanPrompt', () => {
       prompt: original,
     })).toBe(original)
   })
+
+  it('filters Chinese copy before adding it to the generation prompt', () => {
+    const prompt = buildAmazonPlanPrompt({
+      kind: 'detail',
+      copy: '中文卖点\\nLeak Resistant Lid',
+      prompt: 'Create a detail Amazon image.',
+    })
+
+    expect(prompt).toContain('On-image copy to render exactly:')
+    expect(prompt).toContain('Leak Resistant Lid')
+    expect(prompt).not.toContain('中文卖点')
+  })
 })
 
 describe('buildAmazonAPlusPlanPrompt', () => {
@@ -103,6 +116,26 @@ describe('buildAmazonAPlusPlanPrompt', () => {
     expect(prompt).not.toContain(plan.textTitle)
     expect(prompt).not.toContain(plan.textBody)
     expect(prompt).toContain('Do not add on-image text')
+  })
+
+  it('does not send Chinese A+ copy to the image generation prompt', () => {
+    const prompt = buildAmazonAPlusPlanPrompt({
+      moduleType: 'single-image',
+      uploadSize: '970x600',
+      generationSize: '2048x1267',
+      copy: '中文图内文案',
+      prompt: 'Create a clean A+ product module.',
+    })
+
+    expect(prompt).not.toContain('中文图内文案')
+    expect(prompt).not.toContain('On-image copy to render exactly:')
+    expect(prompt).toContain('Do not add on-image text')
+  })
+})
+
+describe('normalizeOnImageCopy', () => {
+  it('keeps English copy lines and removes lines with CJK characters', () => {
+    expect(normalizeOnImageCopy('中文卖点\\nLeak Resistant Lid\\nBuilt for Travel')).toBe('Leak Resistant Lid\nBuilt for Travel')
   })
 })
 
@@ -215,6 +248,7 @@ function createSseResponse(events: Array<Record<string, unknown>>, contentType =
 describe('callAmazonPlannerApi', () => {
   it('uses the active API profile URL and key for Responses API planning', async () => {
     const apiPayload = createApiPayload()
+    apiPayload.imagePlans[1]!.copy = '中文卖点\nLeak Resistant Lid'
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
       output_text: JSON.stringify(apiPayload),
     }), {
@@ -244,11 +278,14 @@ describe('callAmazonPlannerApi', () => {
     })
     const body = JSON.parse(String(init?.body))
     expect(body.model).toBe('gpt-planner-profile')
+    expect(body.instructions).toContain('copy must be short natural US-English')
     expect(body.text.format.type).toBe('json_schema')
+    expect(body.text.format.schema.properties.imagePlans.items.properties.copy.description).toContain('never include Chinese')
     expect(body.stream).toBe(false)
     expect(body.input[0].content[0].text).toContain('Parse this Amazon listing copy')
     expect(result.parsed.title).toBe('AI planned tumbler')
     expect(result.plans).toHaveLength(7)
+    expect(result.plans[1]?.copy).toBe('Leak Resistant Lid')
     expect(result.aPlusPlans).toHaveLength(0)
   })
 
@@ -280,8 +317,10 @@ describe('callAmazonPlannerApi', () => {
     expect(body.text.format.name).toBe('amazon_aplus_image_plan')
     expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('textTitle')
     expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('textBody')
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties.copy.description).toContain('US-English')
     expect(body.text.format.schema.properties.aPlusPlans.items.required).toContain('textTitle')
     expect(body.text.format.schema.properties.aPlusPlans.items.required).toContain('textBody')
+    expect(body.instructions).toContain('copy, textTitle, and textBody must be short natural US-English')
     expect(body.input[0].content[0].text).toContain('Standard A+ Content')
     expect(result.mode).toBe('aplus')
     expect(result.parsed.title).toBe('Standard A+ tumbler')

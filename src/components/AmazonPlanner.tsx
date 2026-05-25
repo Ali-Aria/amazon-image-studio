@@ -32,6 +32,19 @@ const LABEL_CLASS = 'mb-1.5 block text-xs font-medium text-gray-500 dark:text-gr
 const PLAN_LIST_CLASS = 'grid max-h-[420px] gap-2 overflow-y-auto overscroll-contain pr-1 custom-scrollbar sm:max-h-[480px]'
 const API_MAX_IMAGES = 16
 type ComplianceStatus = 'ready' | 'warning' | 'missing'
+type WorkflowStepStatus = 'done' | 'current' | 'todo'
+
+function getWorkflowStepClass(status: WorkflowStepStatus) {
+  if (status === 'done') return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200'
+  if (status === 'current') return 'border-blue-200 bg-blue-50 text-blue-800 ring-2 ring-blue-500/10 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-200'
+  return 'border-gray-200 bg-white text-gray-500 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-400'
+}
+
+function getWorkflowIndexClass(status: WorkflowStepStatus) {
+  if (status === 'done') return 'bg-emerald-600 text-white dark:bg-emerald-400 dark:text-gray-950'
+  if (status === 'current') return 'bg-blue-600 text-white'
+  return 'bg-gray-100 text-gray-500 dark:bg-white/[0.08] dark:text-gray-300'
+}
 
 function getPlannerFailureDetail(err: unknown): string {
   const rawMessage = err instanceof Error ? err.message : String(err)
@@ -165,6 +178,33 @@ export default function AmazonPlanner() {
         inputImages.length,
       )
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
+  const hasPlanningInput = Boolean(listingText.trim() || draft.productTitle.trim() || draft.sellingPoints.trim() || inputImages.length > 0)
+  const hasPlanOptions = visiblePlanCount > 0
+  const hasSelectedPlan = plannerMode === 'aplus' ? Boolean(selectedAPlusPlan) : Boolean(selectedPlan)
+  const activeWorkflowStep = !hasPlanningInput ? 0 : !hasPlanOptions ? 1 : !hasSelectedPlan ? 2 : 3
+  const workflowSteps = [
+    {
+      label: '准备资料',
+      detail: hasPlanningInput ? '资料已就绪' : plannerMode === 'aplus' ? '标题、五点或品牌说明' : '标题和五点描述',
+    },
+    {
+      label: plannerMode === 'aplus' ? 'AI策划A+' : 'AI策划',
+      detail: hasPlanOptions
+        ? plannerMode === 'aplus' ? `${visiblePlanCount} 个模块` : `${visiblePlanCount} 张方案`
+        : plannerProfileValidation ? '先完成策划配置' : '生成逐张方案',
+    },
+    {
+      label: plannerMode === 'aplus' ? '选择模块' : '选择图片位',
+      detail: hasSelectedPlan ? `${actionSlot ?? '当前'} 已选` : hasPlanOptions ? '点选右侧卡片' : '等待策划结果',
+    },
+    {
+      label: '填入生成',
+      detail: hasSelectedPlan ? `${targetSize} / JPEG` : '等待可用 Prompt',
+    },
+  ].map((step, index) => ({
+    ...step,
+    status: index < activeWorkflowStep ? 'done' : index === activeWorkflowStep ? 'current' : 'todo',
+  })) satisfies Array<{ label: string; detail: string; status: WorkflowStepStatus }>
 
   const applyPrompt = () => {
     if (plannerMode === 'aplus' && !selectedAPlusPlan) {
@@ -453,6 +493,23 @@ export default function AmazonPlanner() {
               提交生成
             </button>
           </div>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-label="Amazon 图片生成流程">
+          {workflowSteps.map((step, index) => (
+            <div
+              key={step.label}
+              aria-current={step.status === 'current' ? 'step' : undefined}
+              className={`min-h-[68px] rounded-lg border px-3 py-2.5 transition ${getWorkflowStepClass(step.status)}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${getWorkflowIndexClass(step.status)}`}>
+                  {index + 1}
+                </span>
+                <span className="min-w-0 text-sm font-semibold">{step.label}</span>
+              </div>
+              <div className="mt-1.5 text-xs leading-snug opacity-80">{step.detail}</div>
+            </div>
+          ))}
         </div>
       </div>
 
