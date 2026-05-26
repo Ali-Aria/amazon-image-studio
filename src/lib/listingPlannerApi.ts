@@ -1,5 +1,6 @@
 import type { ApiProfile } from '../types'
 import { DEFAULT_RESPONSES_MODEL } from './apiProfiles'
+import { formatAmazonAPlusKnowledgeRules, formatAmazonListingKnowledgeRules } from './amazonKnowledge'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getApiErrorMessage } from './imageApiShared'
 import type { AmazonPromptDraft } from './amazonPrompt'
@@ -400,6 +401,7 @@ function buildListingPlannerInstructions(baseDraft: AmazonPromptDraft) {
     'You are a senior Amazon US visual director with 10 years of marketplace image planning experience.',
     'Create a conversion-focused image plan for exactly 7 Amazon listing images: MAIN, PT01, PT02, PT03, PT04, PT05, PT06.',
     'Strictly follow Amazon image compliance: main image must be pure white RGB 255,255,255, product fills about 85% of frame, no text, no logos, no watermark, no props. Secondary images must not include Amazon/Prime/Alexa/Amazon Choice/Best Seller/hot sale badges, reviews, star ratings, pricing, coupons, shipping claims, or unsupported claims.',
+    formatAmazonListingKnowledgeRules(),
     'Each image plan must include a concise Chinese label, objective, visual concept, on-image copy if useful, compliance statement, scene direction, and a professional English image-generation prompt.',
     'Field language rules are strict: label must be Simplified Chinese; copy must be short natural US-English on-image text or an empty string; prompt must be fully English. Never output Chinese characters in copy or prompt, even if the source listing is Chinese.',
     'The MAIN prompt must include exactly this mandatory phrase: on a seamless pure white background RGB 255, 255, 255, professional studio lighting, product takes up 85% of the frame, high resolution, photorealistic.',
@@ -428,6 +430,7 @@ function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: 
     `Create a ${typeLabel} image module plan. Do not generate images. Only return JSON matching the schema.`,
     `Return exactly ${specs.length} modules in this order: ${specs.map((spec) => `${spec.slot} ${spec.label} ${getAPlusModuleUploadSize(spec)}px`).join('; ')}.`,
     'A+ images must be unique to the product and brand story; avoid repeating the exact same gallery images.',
+    formatAmazonAPlusKnowledgeRules(),
     aPlusType === 'standard-large'
       ? 'For this large-image template, create one 970x300 header banner and four 970x600 single-image modules. Do not add Highlight Tile modules.'
       : '',
