@@ -9,6 +9,26 @@ export interface DevProxyConfig {
 }
 
 const DEFAULT_PROXY_PREFIX = '/api-proxy'
+interface BuildApiUrlOptions {
+  prefixV1?: boolean
+}
+
+function normalizeBaseUrlPreservePath(baseUrl: string): string {
+  const trimmed = baseUrl.trim()
+  if (!trimmed) return ''
+
+  const input = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`
+
+  try {
+    const url = new URL(input)
+    const pathname = url.pathname.replace(/\/+$/, '')
+    return `${url.origin}${pathname === '/' ? '' : pathname}`
+  } catch {
+    return trimmed.replace(/\/+$/, '')
+  }
+}
 
 export function normalizeBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.trim()
@@ -59,12 +79,16 @@ export function buildApiUrl(
   path: string,
   proxyConfig?: DevProxyConfig | null,
   useApiProxy = false,
+  options: BuildApiUrlOptions = {},
 ): string {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  const prefixV1 = options.prefixV1 !== false
+  const normalizedBaseUrl = prefixV1 ? normalizeBaseUrl(baseUrl) : normalizeBaseUrlPreservePath(baseUrl)
   const endpointPath = path.replace(/^\/+/, '')
-  const apiPath = normalizedBaseUrl.endsWith('/v1')
+  const apiPath = prefixV1 && normalizedBaseUrl.endsWith('/v1')
     ? endpointPath
-    : ['v1', endpointPath].join('/')
+    : prefixV1
+      ? ['v1', endpointPath].join('/')
+      : endpointPath
 
   if (useApiProxy) {
     return `${proxyConfig?.prefix ?? DEFAULT_PROXY_PREFIX}/${apiPath}`

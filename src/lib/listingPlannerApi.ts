@@ -1,6 +1,6 @@
 import type { ApiProfile } from '../types'
-import { DEFAULT_RESPONSES_MODEL } from './apiProfiles'
-import { formatAmazonAPlusKnowledgeRules, formatAmazonListingKnowledgeRules } from './amazonKnowledge'
+import { DEFAULT_CHAT_MODEL, DEFAULT_RESPONSES_MODEL } from './apiProfiles'
+import { formatAmazonAPlusReferenceMaterial, formatAmazonListingReferenceMaterial } from './amazonKnowledge'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getApiErrorMessage } from './imageApiShared'
 import type { AmazonPromptDraft } from './amazonPrompt'
@@ -9,11 +9,11 @@ import {
   getAPlusModuleGenerationSize,
   getAPlusModuleSpecs,
   getAPlusModuleUploadSize,
-  normalizeOnImageCopy,
   type APlusContentType,
   type AmazonAPlusPlan,
   type AmazonImagePlan,
   type AmazonPlannerMode,
+  type AmazonStyleCandidate,
   type ListingParseResult,
 } from './listingPlanner'
 import { isEventStreamResponse, looksLikeServerSentEvents, readJsonServerSentEvents, readJsonServerSentEventText } from './serverSentEvents'
@@ -29,13 +29,17 @@ interface PlannerApiPayload {
     packageIncludes?: string
   }
   sellingPoints?: string[]
-  imagePlans?: AmazonImagePlan[]
+  seriesStyleGuide?: string
+  styleCandidates?: AmazonStyleCandidate[]
+  imagePlans?: Array<Partial<AmazonImagePlan>>
   aPlusPlans?: Array<Partial<AmazonAPlusPlan>>
 }
 
 export interface PlannerApiResult {
   mode: AmazonPlannerMode
   parsed: ListingParseResult
+  seriesStyleGuide: string
+  styleCandidates: AmazonStyleCandidate[]
   plans: AmazonImagePlan[]
   aPlusPlans: AmazonAPlusPlan[]
   aPlusType?: APlusContentType
@@ -69,12 +73,37 @@ const CHINESE_LABEL_SCHEMA = {
 
 const ENGLISH_ON_IMAGE_COPY_SCHEMA = {
   type: 'string',
-  description: 'Short natural US-English on-image text only, or an empty string. This value is injected verbatim into the image-generation prompt; never include Chinese characters.',
+  description: 'Short natural US-English on-image copy only, or an empty string. The image model should render it consistently when the final prompt includes it; never include Chinese characters.',
 } as const
 
 const ENGLISH_IMAGE_PROMPT_SCHEMA = {
   type: 'string',
   description: 'Professional English image-generation prompt only. Never include Chinese characters.',
+} as const
+
+const PLAN_MARKDOWN_SCHEMA = {
+  type: 'string',
+  description: 'Detailed Simplified Chinese planning write-up for this slot, similar to a ChatGPT agent response. Markdown is allowed.',
+} as const
+
+const NEGATIVE_PROMPT_SCHEMA = {
+  type: 'string',
+  description: 'English negative prompt for the image model. Never include Chinese characters.',
+} as const
+
+const STYLE_CANDIDATE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    label: { type: 'string', description: 'Concise Simplified Chinese style option name.' },
+    description: { type: 'string', description: 'Simplified Chinese explanation of the visual style option.' },
+    prompt: {
+      ...ENGLISH_IMAGE_PROMPT_SCHEMA,
+      description: 'Professional English prompt for a 1024x1024 visual style reference board. Never include Chinese characters.',
+    },
+    negativePrompt: NEGATIVE_PROMPT_SCHEMA,
+  },
+  required: ['label', 'description', 'prompt', 'negativePrompt'],
 } as const
 
 const LISTING_PLANNER_SCHEMA = {
@@ -83,6 +112,16 @@ const LISTING_PLANNER_SCHEMA = {
   properties: {
     product: PRODUCT_SCHEMA,
     sellingPoints: SELLING_POINTS_SCHEMA,
+    seriesStyleGuide: {
+      type: 'string',
+      description: 'LLM-authored English visual style guide to keep the whole image set coherent.',
+    },
+    styleCandidates: {
+      type: 'array',
+      minItems: 3,
+      maxItems: 3,
+      items: STYLE_CANDIDATE_SCHEMA,
+    },
     imagePlans: {
       type: 'array',
       minItems: 7,
@@ -93,19 +132,15 @@ const LISTING_PLANNER_SCHEMA = {
         properties: {
           slot: { type: 'string', enum: ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06'] },
           label: CHINESE_LABEL_SCHEMA,
-          kind: { type: 'string', enum: ['main', 'lifestyle', 'detail', 'scale', 'bundle', 'steps'] },
-          objective: { type: 'string' },
-          concept: { type: 'string' },
-          copy: ENGLISH_ON_IMAGE_COPY_SCHEMA,
-          compliance: { type: 'string' },
-          scene: { type: 'string' },
+          planMarkdown: PLAN_MARKDOWN_SCHEMA,
           prompt: ENGLISH_IMAGE_PROMPT_SCHEMA,
+          negativePrompt: NEGATIVE_PROMPT_SCHEMA,
         },
-        required: ['slot', 'label', 'kind', 'objective', 'concept', 'copy', 'compliance', 'scene', 'prompt'],
+        required: ['slot', 'label', 'planMarkdown', 'prompt', 'negativePrompt'],
       },
     },
   },
-  required: ['product', 'sellingPoints', 'imagePlans'],
+  required: ['product', 'sellingPoints', 'seriesStyleGuide', 'styleCandidates', 'imagePlans'],
 } as const
 
 function createAPlusPlannerSchema(aPlusType: APlusContentType) {
@@ -116,6 +151,16 @@ function createAPlusPlannerSchema(aPlusType: APlusContentType) {
     properties: {
       product: PRODUCT_SCHEMA,
       sellingPoints: SELLING_POINTS_SCHEMA,
+      seriesStyleGuide: {
+        type: 'string',
+        description: 'LLM-authored English visual style guide to keep the whole A+ module set coherent.',
+      },
+      styleCandidates: {
+        type: 'array',
+        minItems: 3,
+        maxItems: 3,
+        items: STYLE_CANDIDATE_SCHEMA,
+      },
       aPlusPlans: {
         type: 'array',
         minItems: specs.length,
@@ -127,20 +172,17 @@ function createAPlusPlannerSchema(aPlusType: APlusContentType) {
             slot: { type: 'string', enum: specs.map((spec) => spec.slot) },
             label: CHINESE_LABEL_SCHEMA,
             moduleType: { type: 'string', enum: Array.from(new Set(specs.map((spec) => spec.moduleType))) },
-            objective: { type: 'string' },
-            concept: { type: 'string' },
-            copy: ENGLISH_ON_IMAGE_COPY_SCHEMA,
+            planMarkdown: PLAN_MARKDOWN_SCHEMA,
             textTitle: { type: 'string' },
             textBody: { type: 'string' },
-            compliance: { type: 'string' },
-            scene: { type: 'string' },
             prompt: ENGLISH_IMAGE_PROMPT_SCHEMA,
+            negativePrompt: NEGATIVE_PROMPT_SCHEMA,
           },
-          required: ['slot', 'label', 'moduleType', 'objective', 'concept', 'copy', 'textTitle', 'textBody', 'compliance', 'scene', 'prompt'],
+          required: ['slot', 'label', 'moduleType', 'planMarkdown', 'textTitle', 'textBody', 'prompt', 'negativePrompt'],
         },
       },
     },
-    required: ['product', 'sellingPoints', 'aPlusPlans'],
+    required: ['product', 'sellingPoints', 'seriesStyleGuide', 'styleCandidates', 'aPlusPlans'],
   } as const
 }
 
@@ -148,6 +190,32 @@ function extractResponseText(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return ''
   const record = payload as Record<string, unknown>
   if (typeof record.output_text === 'string') return record.output_text
+
+  const choices = Array.isArray(record.choices) ? record.choices : []
+  const chatChunks: string[] = []
+  for (const choice of choices) {
+    if (!choice || typeof choice !== 'object') continue
+    const choiceRecord = choice as Record<string, unknown>
+    const message = choiceRecord.message
+    if (message && typeof message === 'object') {
+      const messageRecord = message as Record<string, unknown>
+      const content = messageRecord.content
+      if (typeof content === 'string') chatChunks.push(content)
+      else if (Array.isArray(content)) {
+        for (const part of content) {
+          if (!part || typeof part !== 'object') continue
+          const partRecord = part as Record<string, unknown>
+          if (typeof partRecord.text === 'string') chatChunks.push(partRecord.text)
+        }
+      }
+    }
+    const delta = choiceRecord.delta
+    if (delta && typeof delta === 'object') {
+      const content = (delta as Record<string, unknown>).content
+      if (typeof content === 'string') chatChunks.push(content)
+    }
+  }
+  if (chatChunks.length) return chatChunks.join('\n').trim()
 
   const output = Array.isArray(record.output) ? record.output : []
   const chunks: string[] = []
@@ -186,6 +254,9 @@ function getPlannerPayloadFromEvent(event: Record<string, unknown>): unknown {
 }
 
 function getPlannerTextFromEvent(event: Record<string, unknown>): string {
+  const directText = extractResponseText(event)
+  if (directText) return directText
+
   const payloadText = extractResponseText(getPlannerPayloadFromEvent(event))
   if (payloadText) return payloadText
 
@@ -220,6 +291,7 @@ async function readPlannerTextFromSseResponse(response: Response): Promise<strin
     if (type === 'response.completed') completedText = text
     else if (type === 'response.output_item.done') outputItemText = text
     else if (type === 'response.output_text.done' || type === 'response.content_part.done') doneText = text
+    else if (!type) deltaText += text
   })
 
   return completedText.trim() || outputItemText.trim() || doneText.trim() || deltaText.trim()
@@ -244,6 +316,7 @@ async function readPlannerTextFromSseText(rawText: string): Promise<string> {
     if (type === 'response.completed') completedText = text
     else if (type === 'response.output_item.done') outputItemText = text
     else if (type === 'response.output_text.done' || type === 'response.content_part.done') doneText = text
+    else if (!type) deltaText += text
   })
 
   return completedText.trim() || outputItemText.trim() || doneText.trim() || deltaText.trim()
@@ -293,18 +366,15 @@ async function readPlannerResponseText(response: Response): Promise<string> {
   return text
 }
 
-function normalizePlan(plan: AmazonImagePlan, index: number): AmazonImagePlan {
+function normalizePlan(plan: Partial<AmazonImagePlan>, index: number): AmazonImagePlan {
   const slots = ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06']
   return {
     slot: plan.slot || slots[index] || `PT${String(index).padStart(2, '0')}`,
     label: plan.label || '图片方案',
-    kind: plan.kind,
-    objective: plan.objective || '',
-    concept: plan.concept || '',
-    copy: normalizeOnImageCopy(plan.copy || ''),
-    compliance: plan.compliance || '',
-    scene: plan.scene || '',
+    ...(plan.kind ? { kind: plan.kind } : {}),
+    planMarkdown: plan.planMarkdown || '',
     prompt: plan.prompt || '',
+    negativePrompt: plan.negativePrompt || '',
   }
 }
 
@@ -331,17 +401,39 @@ function normalizeParsedListing(payload: PlannerApiPayload): ListingParseResult 
   }
 }
 
+function normalizeStyleCandidates(payload: PlannerApiPayload): AmazonStyleCandidate[] {
+  const candidates = Array.isArray(payload.styleCandidates) ? payload.styleCandidates : []
+  return candidates
+    .map((candidate, index) => ({
+      label: candidate?.label?.trim() || `风格 ${index + 1}`,
+      description: candidate?.description?.trim() || '',
+      prompt: candidate?.prompt?.trim() || '',
+      negativePrompt: candidate?.negativePrompt?.trim() || '',
+    }))
+    .filter((candidate) => candidate.prompt)
+    .slice(0, 3)
+}
+
+function normalizeSeriesStyleGuide(payload: PlannerApiPayload): string {
+  return typeof payload.seriesStyleGuide === 'string' ? payload.seriesStyleGuide.trim() : ''
+}
+
 function normalizeListingPlannerApiPayload(payload: PlannerApiPayload): PlannerApiResult {
   const parsed = normalizeParsedListing(payload)
+  const seriesStyleGuide = normalizeSeriesStyleGuide(payload)
+  const styleCandidates = normalizeStyleCandidates(payload)
   const plans = Array.isArray(payload.imagePlans)
-    ? payload.imagePlans.map(normalizePlan).filter((plan) => plan.prompt.trim()).slice(0, 7)
+    ? payload.imagePlans.map(normalizePlan).filter((plan) => plan.prompt.trim() && plan.planMarkdown.trim()).slice(0, 7)
     : []
 
   if (plans.length !== 7) throw new Error('AI 策划结果不是 7 张图')
+  if (styleCandidates.length !== 3) throw new Error('AI 策划结果不是 3 个风格候选')
 
   return {
     mode: 'listing',
     parsed,
+    seriesStyleGuide,
+    styleCandidates,
     plans,
     aPlusPlans: [],
   }
@@ -362,19 +454,18 @@ function normalizeAPlusPlan(
     moduleType: plan?.moduleType || spec.moduleType,
     uploadSize: getAPlusModuleUploadSize(spec),
     generationSize: getAPlusModuleGenerationSize(spec, tier),
-    objective: plan?.objective || spec.objective,
-    concept: plan?.concept || '',
-    copy: normalizeOnImageCopy(plan?.copy || ''),
+    planMarkdown: plan?.planMarkdown || '',
     textTitle: plan?.textTitle || '',
     textBody: plan?.textBody || '',
-    compliance: plan?.compliance || '',
-    scene: plan?.scene || '',
     prompt: plan?.prompt || '',
+    negativePrompt: plan?.negativePrompt || '',
   }
 }
 
 function normalizeAPlusPlannerApiPayload(payload: PlannerApiPayload, aPlusType: APlusContentType, tier: SizeTier): PlannerApiResult {
   const parsed = normalizeParsedListing(payload)
+  const seriesStyleGuide = normalizeSeriesStyleGuide(payload)
+  const styleCandidates = normalizeStyleCandidates(payload)
   const specs = getAPlusModuleSpecs(aPlusType)
   const rawPlans = Array.isArray(payload.aPlusPlans) ? payload.aPlusPlans : []
   if (rawPlans.length !== specs.length) throw new Error(`AI A+ 策划结果不是 ${specs.length} 个模块`)
@@ -386,10 +477,15 @@ function normalizeAPlusPlannerApiPayload(payload: PlannerApiPayload, aPlusType: 
 
   const emptyPrompt = aPlusPlans.find((plan) => !plan.prompt.trim())
   if (emptyPrompt) throw new Error(`AI A+ 策划结果缺少 ${emptyPrompt.slot} 的提示词`)
+  const emptyPlan = aPlusPlans.find((plan) => !plan.planMarkdown.trim())
+  if (emptyPlan) throw new Error(`AI A+ 策划结果缺少 ${emptyPlan.slot} 的策划说明`)
+  if (styleCandidates.length !== 3) throw new Error('AI A+ 策划结果不是 3 个风格候选')
 
   return {
     mode: 'aplus',
     parsed,
+    seriesStyleGuide,
+    styleCandidates,
     plans: [],
     aPlusPlans,
     aPlusType,
@@ -398,16 +494,19 @@ function normalizeAPlusPlannerApiPayload(payload: PlannerApiPayload, aPlusType: 
 
 function buildListingPlannerInstructions(baseDraft: AmazonPromptDraft) {
   return [
-    'You are a senior Amazon US visual director with 10 years of marketplace image planning experience.',
-    'Create a conversion-focused image plan for exactly 7 Amazon listing images: MAIN, PT01, PT02, PT03, PT04, PT05, PT06.',
-    'Strictly follow Amazon image compliance: main image must be pure white RGB 255,255,255, product fills about 85% of frame, no text, no logos, no watermark, no props. Secondary images must not include Amazon/Prime/Alexa/Amazon Choice/Best Seller/hot sale badges, reviews, star ratings, pricing, coupons, shipping claims, or unsupported claims.',
-    formatAmazonListingKnowledgeRules(),
-    'Each image plan must include a concise Chinese label, objective, visual concept, on-image copy if useful, compliance statement, scene direction, and a professional English image-generation prompt.',
-    'Field language rules are strict: label must be Simplified Chinese; copy must be short natural US-English on-image text or an empty string; prompt must be fully English. Never output Chinese characters in copy or prompt, even if the source listing is Chinese.',
-    'The MAIN prompt must include exactly this mandatory phrase: on a seamless pure white background RGB 255, 255, 255, professional studio lighting, product takes up 85% of the frame, high resolution, photorealistic.',
+    'You are an Amazon image-planning agent. The user provides listing copy and optional product reference images.',
+    'Create a complete visual plan for exactly 7 Amazon listing image slots: MAIN, PT01, PT02, PT03, PT04, PT05, PT06.',
+    'The application only fixes the slot count and order. You must decide the strategy, composition, copy approach, visual treatment, prompt content, and negative prompt content.',
+    'Use the Amazon reference material below to improve compliance judgment. It is not a fixed slot-by-slot framework, and it must not replace the product facts from the listing and reference images.',
+    formatAmazonListingReferenceMaterial(),
+    'For each slot, write planMarkdown in Simplified Chinese as a detailed agent-style plan similar to a ChatGPT web response, then write a professional English image prompt and English negative prompt.',
+    'Return one seriesStyleGuide string in English that can keep separately generated images visually coherent.',
+    'Return exactly 3 styleCandidates for low-resolution visual style reference board generation. Each candidate should represent a distinct coherent visual style choice for this same product, not a finished Amazon listing image.',
+    'For each styleCandidates.prompt, describe a 1024x1024 visual style reference board with visible typography samples, color palette swatches, lighting/material samples, background/material texture samples, product-finish detail samples, and icon/callout treatment.',
+    'The style board typography samples must use generic English placeholder words only, such as PRODUCT TITLE, KEY BENEFIT, DETAIL CALLOUT, 01, 02, 03. Do not include Chinese characters, real product claims, brand logos, Amazon marks, prices, promotions, QR codes, contact details, or external URLs in styleCandidates.prompt.',
+    'Field language rules: label and planMarkdown must be Simplified Chinese; seriesStyleGuide, prompt, negativePrompt, and styleCandidates.prompt/negativePrompt must be English.',
     'Do not generate images. Only return JSON matching the schema.',
     baseDraft.category ? `Known category: ${baseDraft.category}` : '',
-    baseDraft.forbidden ? `Extra forbidden visual elements: ${baseDraft.forbidden}` : '',
   ].filter(Boolean).join('\n')
 }
 
@@ -426,25 +525,21 @@ function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: 
   const specs = getAPlusModuleSpecs(aPlusType)
   const typeLabel = getAPlusPlannerTypeName(aPlusType)
   return [
-    'You are a senior Amazon US A+ Content visual director with 10 years of marketplace conversion design experience.',
+    'You are an Amazon A+ Content image-planning agent. The user provides listing copy, optional brand notes, and optional product reference images.',
     `Create a ${typeLabel} image module plan. Do not generate images. Only return JSON matching the schema.`,
     `Return exactly ${specs.length} modules in this order: ${specs.map((spec) => `${spec.slot} ${spec.label} ${getAPlusModuleUploadSize(spec)}px`).join('; ')}.`,
-    'A+ images must be unique to the product and brand story; avoid repeating the exact same gallery images.',
-    formatAmazonAPlusKnowledgeRules(),
-    aPlusType === 'standard-large'
-      ? 'For this large-image template, create one 970x300 header banner and four 970x600 single-image modules. Do not add Highlight Tile modules.'
-      : '',
-    'Each module must include a concise Chinese label, objective, visual concept, mobile-readable on-image copy only if it should be rendered inside the image, optional external A+ textTitle/textBody, compliance statement, scene direction, and a professional English image-generation prompt.',
-    'Field language rules are strict: label must be Simplified Chinese; copy, textTitle, and textBody must be short natural US-English text or empty strings; prompt must be fully English. Never output Chinese characters in copy or prompt, even if the source listing is Chinese.',
-    'For Standard Highlight Tile modules (A+S05-A+S08), write textTitle as a short US-English benefit headline and textBody as 1-2 concise US-English sentences for the text area beside or below the 220x220 image.',
-    'For non Highlight Tile modules, leave textTitle and textBody empty unless the module genuinely needs separate text outside the image.',
-    'Image-generation prompts must not render textTitle/textBody as on-image text. Use copy only for text that belongs inside the generated image, and prefer empty copy for 220x220 Highlight Tile images.',
-    'A+ compliance: RGB image, clear and non-blurry, no watermark, no tiny unreadable text, no prices, promotions, discounts, coupons, free shipping, QR codes, phone numbers, email addresses, external URLs, customer reviews, star ratings, Amazon/Prime/Alexa/Amazon Choice/Best Seller badges, competitor mentions, unsupported guarantees, or unsubstantiated medical/eco claims.',
-    'Use a cohesive commercial visual system across modules: consistent lighting, color palette, product scale, typography direction, and truthful included accessories.',
-    'Prompts should describe the intended module composition and leave enough safe area for final A+ cropping.',
+    'The application only fixes the module order, module type, upload size, and generation size. You must decide the strategy, composition, copy approach, visual treatment, prompt content, and negative prompt content.',
+    'Use the Amazon A+ reference material below to improve compliance judgment. It is not a fixed module creative framework, and it must not replace the product facts from the listing and reference images.',
+    formatAmazonAPlusReferenceMaterial(),
+    'For each module, write planMarkdown in Simplified Chinese as a detailed agent-style plan similar to a ChatGPT web response, then write a professional English image prompt and English negative prompt.',
+    'Return one seriesStyleGuide string in English that can keep separately generated modules visually coherent.',
+    'Return exactly 3 styleCandidates for low-resolution visual style reference board generation. Each candidate should represent a distinct coherent visual style choice for this same product and A+ set, not a finished Amazon A+ module.',
+    'For each styleCandidates.prompt, describe a 1024x1024 visual style reference board with visible typography samples, color palette swatches, lighting/material samples, background/material texture samples, product-finish detail samples, and icon/callout treatment.',
+    'The style board typography samples must use generic English placeholder words only, such as PRODUCT TITLE, KEY BENEFIT, DETAIL CALLOUT, 01, 02, 03. Do not include Chinese characters, real product claims, brand logos, Amazon marks, prices, promotions, QR codes, contact details, or external URLs in styleCandidates.prompt.',
+    'For modules that need external A+ text outside the image, write textTitle and textBody in natural US English. Otherwise return empty strings.',
+    'Field language rules: label and planMarkdown must be Simplified Chinese; textTitle/textBody must be English or empty; seriesStyleGuide, prompt, negativePrompt, and styleCandidates.prompt/negativePrompt must be English.',
     baseDraft.category ? `Known category: ${baseDraft.category}` : '',
     baseDraft.brand ? `Known brand/model: ${baseDraft.brand}` : '',
-    baseDraft.forbidden ? `Extra forbidden visual elements: ${baseDraft.forbidden}` : '',
   ].filter(Boolean).join('\n')
 }
 
@@ -461,6 +556,7 @@ function buildPlannerInputText(listingText: string, mode: AmazonPlannerMode, aPl
       `Parse this Amazon listing copy and produce the ${getAPlusContentTypeLabel(aPlusType)} A+ Content module plan.`,
       'Use the title and bullet points from the pasted text. If a field is uncertain, infer conservatively from the listing.',
       `Use these A+ modules exactly: ${specs.map((spec) => spec.slot).join(', ')}.`,
+      'If reference images are attached, use them to understand the actual product appearance and included items.',
       '',
       listingText,
     ].join('\n')
@@ -469,59 +565,136 @@ function buildPlannerInputText(listingText: string, mode: AmazonPlannerMode, aPl
   return [
     'Parse this Amazon listing copy and produce the 7-image visual plan.',
     'Use the title and bullet points from the pasted text. If a field is uncertain, infer conservatively from the listing.',
+    'If reference images are attached, use them to understand the actual product appearance and included items.',
     '',
     listingText,
   ].join('\n')
+}
+
+function buildChatPlannerUserContent(text: string, referenceImageDataUrls: string[]) {
+  if (!referenceImageDataUrls.length) return text
+  return [
+    { type: 'text', text },
+    ...referenceImageDataUrls.map((url) => ({
+      type: 'image_url',
+      image_url: { url },
+    })),
+  ]
+}
+
+function buildResponsesPlannerInput(text: string, referenceImageDataUrls: string[]) {
+  return [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'input_text',
+          text,
+        },
+        ...referenceImageDataUrls.map((url) => ({
+          type: 'input_image',
+          image_url: url,
+        })),
+      ],
+    },
+  ]
+}
+
+function buildChatPlannerSchemaGuide(mode: AmazonPlannerMode, aPlusType: APlusContentType) {
+  const productFields = 'product { title, category, color, material, audience, packageIncludes }'
+  const styleFields = 'seriesStyleGuide string, styleCandidates array of exactly 3 { label, description, prompt, negativePrompt }'
+  if (mode === 'aplus') {
+    const specs = getAPlusModuleSpecs(aPlusType)
+    return [
+      `Return JSON with: ${productFields}, sellingPoints string[], ${styleFields}, aPlusPlans array.`,
+      `aPlusPlans must contain exactly ${specs.length} items in this order: ${specs.map((spec) => spec.slot).join(', ')}.`,
+      'Each aPlusPlans item must include: slot, label, moduleType, planMarkdown, textTitle, textBody, prompt, negativePrompt.',
+    ].join('\n')
+  }
+
+  return [
+    `Return JSON with: ${productFields}, sellingPoints string[], ${styleFields}, imagePlans array.`,
+    'imagePlans must contain exactly 7 items in this order: MAIN, PT01, PT02, PT03, PT04, PT05, PT06.',
+    'Each imagePlans item must include: slot, label, planMarkdown, prompt, negativePrompt.',
+  ].join('\n')
+}
+
+function buildChatPlannerSystemPrompt(
+  baseDraft: AmazonPromptDraft,
+  mode: AmazonPlannerMode,
+  aPlusType: APlusContentType,
+) {
+  return [
+    buildPlannerInstructions(baseDraft, mode, aPlusType),
+    'Return a valid JSON object only. Do not output Markdown fences, comments, or any text outside the JSON object.',
+    buildChatPlannerSchemaGuide(mode, aPlusType),
+  ].join('\n\n')
 }
 
 export async function callAmazonPlannerApi(options: {
   listingText: string
   baseDraft: AmazonPromptDraft
   profile: ApiProfile
+  referenceImageDataUrls?: string[]
   model?: string
   mode?: AmazonPlannerMode
   aPlusType?: APlusContentType
   aPlusGenerationTier?: SizeTier
 }): Promise<PlannerApiResult> {
-  const model = options.model?.trim() || options.profile.model.trim() || DEFAULT_RESPONSES_MODEL
+  const model = options.model?.trim() || options.profile.model.trim() || (options.profile.apiMode === 'chat' ? DEFAULT_CHAT_MODEL : DEFAULT_RESPONSES_MODEL)
   const mode = options.mode ?? 'listing'
   const aPlusType = options.aPlusType ?? 'standard-large'
   const aPlusGenerationTier = options.aPlusGenerationTier ?? '2K'
   const schema = mode === 'aplus' ? createAPlusPlannerSchema(aPlusType) : LISTING_PLANNER_SCHEMA
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(options.profile.apiProxy, proxyConfig)
-  const response = await fetch(buildApiUrl(options.profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
+  const useChatCompletions = options.profile.apiMode === 'chat'
+  const inputText = buildPlannerInputText(options.listingText, mode, aPlusType)
+  const referenceImageDataUrls = options.referenceImageDataUrls ?? []
+  const response = await fetch(
+    useChatCompletions
+      ? buildApiUrl(options.profile.baseUrl, 'chat/completions', proxyConfig, useApiProxy, { prefixV1: false })
+      : buildApiUrl(options.profile.baseUrl, 'responses', proxyConfig, useApiProxy),
+    {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${options.profile.apiKey}`,
       'Content-Type': 'application/json',
     },
     cache: 'no-store',
-    body: JSON.stringify({
-      model,
-      instructions: buildPlannerInstructions(options.baseDraft, mode, aPlusType),
-      input: [
-        {
-          role: 'user',
-          content: [
+    body: JSON.stringify(useChatCompletions
+      ? {
+          model,
+          messages: [
             {
-              type: 'input_text',
-              text: buildPlannerInputText(options.listingText, mode, aPlusType),
+              role: 'system',
+              content: buildChatPlannerSystemPrompt(options.baseDraft, mode, aPlusType),
+            },
+            {
+              role: 'user',
+              content: buildChatPlannerUserContent(inputText, referenceImageDataUrls),
             },
           ],
+          response_format: { type: 'json_object' },
+          stream: false,
+        }
+      : {
+          model,
+          instructions: buildPlannerInstructions(options.baseDraft, mode, aPlusType),
+          input: buildResponsesPlannerInput(inputText, referenceImageDataUrls),
+          text: {
+            format: {
+              type: 'json_schema',
+              name: mode === 'aplus' ? 'amazon_aplus_image_plan' : 'amazon_listing_image_plan',
+              strict: true,
+              schema,
+            },
+          },
+          stream: false,
         },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: mode === 'aplus' ? 'amazon_aplus_image_plan' : 'amazon_listing_image_plan',
-          strict: true,
-          schema,
-        },
-      },
-      stream: false,
-    }),
-  })
+    ),
+    },
+  )
 
   if (!response.ok) {
     const message = await getApiErrorMessage(response)

@@ -15,7 +15,7 @@
 - Amazon 合规提示：主图白底、商品占比、禁用 Amazon/Prime/价格/评价/Best Seller 等风险元素。
 - 支持 2K / 4K 输出；Listing 图默认方图，A+ 图按模块比例生成高清图，并显示 Seller Central 上传建议尺寸。
 - A+ 小方块模块支持单独输出标题/正文文案，和图片内文字分开，避免把长文案画进 220x220 图片里。
-- 支持 OpenAI / OpenAI 兼容图片接口，以及独立的 AI 策划 Responses API 配置。
+- 支持 OpenAI / OpenAI 兼容图片接口，以及独立的 AI 策划 Chat Completions / Responses API 配置。
 - 历史记录支持按商品、来源、形状筛选；从历史记录复用或编辑 Listing / A+ 图片时，新任务会继承原商品分类。
 - 保留原项目的参考图、遮罩编辑、历史记录、批量下载、本地 IndexedDB 存储等能力。
 
@@ -120,11 +120,13 @@ stop-amazon-image-studio.bat
 用于根据 Listing 生成 `Main + PT01-PT06` 或 A+ 模块图片策划。
 
 - 服务商：OpenAI
-- API 接口：`Responses API (/v1/responses)`
-- 模型：文本/多模态模型
+- API 接口：`Chat Completions (/chat/completions)`；OpenAI 官方也可继续使用 `Responses API (/v1/responses)`
+- 模型：文本/多模态模型，例如 DeepSeek 使用 `deepseek-v4-flash`
 - API Key：填写你自己的 Key
 
-在设置页中，把“AI 策划配置”选择为这个 Responses API 配置。这样生图和策划不需要来回切换接口类型。
+DeepSeek 示例：API URL 填 `https://api.deepseek.com`，API 接口选择 `Chat Completions (/chat/completions)`，模型填 `deepseek-v4-flash`。
+
+在设置页中，把“AI 策划配置”选择为这个 Chat Completions 配置。这样生图和策划不需要来回切换接口类型。
 
 AI 策划提示词已内置精炼版亚马逊图片知识库规则，包括 Listing 主图/附图规范、A+ 模块尺寸、移动端可读性和合规禁用项。原始知识库 Markdown 保存在 `docs/knowledge/` 作为规则来源备查，运行时不会把整篇原文发送给模型。
 
@@ -201,7 +203,7 @@ stop-amazon-image-studio.bat
 
 ### AI 策划失败
 
-检查“AI 策划配置”是否使用了 `Responses API (/v1/responses)`，并确认模型不是图片生成模型。部分图片中转接口只开放 `/v1/images`，不支持 `/v1/responses`，这种情况下 AI 策划会失败。
+检查“AI 策划配置”是否使用了文本接口，并确认模型不是图片生成模型。DeepSeek 请使用 `Chat Completions (/chat/completions)`；部分图片中转接口只开放 `/v1/images`，不支持聊天或 Responses 接口，这种情况下 AI 策划会失败。
 
 ### 生图失败
 

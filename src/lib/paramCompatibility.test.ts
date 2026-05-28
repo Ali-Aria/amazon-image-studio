@@ -50,4 +50,34 @@ describe('parameter compatibility', () => {
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: 'auto' }, settings).size).toBe('1360x1024')
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, size: 'auto' }, settings, { hasInputImages: true }).size).toBe('auto')
   })
+
+  it('defaults JPEG/WebP output compression to 70 for OpenAI requests', () => {
+    const openAIProfile = createDefaultOpenAIProfile({ apiKey: 'test-key' })
+    const settings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [openAIProfile],
+      activeProfileId: openAIProfile.id,
+    })
+
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, output_format: 'jpeg', output_compression: null }, settings).output_compression).toBe(70)
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, output_format: 'webp', output_compression: null }, settings).output_compression).toBe(70)
+  })
+
+  it('clears unsupported output compression for PNG and fal.ai', () => {
+    const falProfile = createDefaultFalProfile({ apiKey: 'fal-key' })
+    const falSettings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [falProfile],
+      activeProfileId: falProfile.id,
+    })
+    const openAIProfile = createDefaultOpenAIProfile({ apiKey: 'test-key' })
+    const openAISettings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [openAIProfile],
+      activeProfileId: openAIProfile.id,
+    })
+
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, output_format: 'png', output_compression: 70 }, openAISettings).output_compression).toBeNull()
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, output_format: 'jpeg', output_compression: 70 }, falSettings).output_compression).toBeNull()
+  })
 })

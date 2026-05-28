@@ -157,6 +157,7 @@ export default function DetailModal() {
   const maskTargetSrc = maskTargetId ? imageSrcs[maskTargetId] || '' : ''
   const maskSrc = task?.maskImageId ? imageSrcs[task.maskImageId] || '' : ''
   const allInputImageIds = task?.inputImageIds ?? []
+  const styleReferenceImageId = task?.category?.styleReferenceImageId?.trim() || ''
 
   useEffect(() => {
     const outputImageIds = task?.outputImages ?? []
@@ -814,6 +815,7 @@ export default function DetailModal() {
                     <div className="flex gap-2 flex-wrap">
                       {allInputImageIds.map((imgId) => {
                         const isMaskTarget = imgId === maskTargetId
+                        const isStyleReference = imgId === styleReferenceImageId
                         const displaySrc = (isMaskTarget && maskPreviewSrc) ? maskPreviewSrc : (imageSrcs[imgId] || '')
                         return (
                           <div key={imgId} className="relative group inline-block">
@@ -834,6 +836,11 @@ export default function DetailModal() {
                               {isMaskTarget && (
                                 <span className="absolute left-1 top-1 rounded bg-blue-500/90 px-1.5 py-0.5 text-[8px] leading-none text-white font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
                                   MASK
+                                </span>
+                              )}
+                              {isStyleReference && !isMaskTarget && (
+                                <span className="absolute left-1 top-1 rounded bg-violet-500/90 px-1.5 py-0.5 text-[8px] leading-none text-white font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
+                                  STYLE
                                 </span>
                               )}
                             </div>

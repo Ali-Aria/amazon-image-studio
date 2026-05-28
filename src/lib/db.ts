@@ -1,10 +1,11 @@
-import type { TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
+import type { AmazonPlannerSession, TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
 
 const DB_NAME = 'amazon-image-studio'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
+const STORE_AMAZON_PLANNER_SESSIONS = 'amazonPlannerSessions'
 const THUMBNAIL_MAX_SIZE = 720
 const THUMBNAIL_QUALITY = 0.9
 const THUMBNAIL_VERSION = 2
@@ -24,6 +25,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_THUMBNAILS)) {
         db.createObjectStore(STORE_THUMBNAILS, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(STORE_AMAZON_PLANNER_SESSIONS)) {
+        db.createObjectStore(STORE_AMAZON_PLANNER_SESSIONS, { keyPath: 'id' })
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -64,6 +68,24 @@ export function deleteTask(id: string): Promise<undefined> {
 
 export function clearTasks(): Promise<undefined> {
   return dbTransaction(STORE_TASKS, 'readwrite', (s) => s.clear())
+}
+
+// ===== Amazon planner sessions =====
+
+export function getAllAmazonPlannerSessions(): Promise<AmazonPlannerSession[]> {
+  return dbTransaction(STORE_AMAZON_PLANNER_SESSIONS, 'readonly', (s) => s.getAll())
+}
+
+export function putAmazonPlannerSession(session: AmazonPlannerSession): Promise<IDBValidKey> {
+  return dbTransaction(STORE_AMAZON_PLANNER_SESSIONS, 'readwrite', (s) => s.put(session))
+}
+
+export function deleteAmazonPlannerSession(id: string): Promise<undefined> {
+  return dbTransaction(STORE_AMAZON_PLANNER_SESSIONS, 'readwrite', (s) => s.delete(id))
+}
+
+export function clearAmazonPlannerSessions(): Promise<undefined> {
+  return dbTransaction(STORE_AMAZON_PLANNER_SESSIONS, 'readwrite', (s) => s.clear())
 }
 
 // ===== Images =====

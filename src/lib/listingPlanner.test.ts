@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createDefaultOpenAIProfile } from './apiProfiles'
+import { DEFAULT_CHAT_MODEL, createDefaultOpenAIProfile } from './apiProfiles'
 import { DEFAULT_AMAZON_PROMPT_DRAFT } from './amazonPrompt'
 import {
   buildAmazonAPlusPlanPrompt,
   buildAmazonPlanPrompt,
+  buildAmazonStyleCandidatePrompt,
   formatAPlusModuleText,
   getAPlusContentTypeLabel,
   getAPlusModuleDisplayName,
   getAPlusModuleEnglishName,
   getAPlusModuleSpecs,
-  normalizeOnImageCopy,
 } from './listingPlanner'
 import { callAmazonPlannerApi } from './listingPlannerApi'
 
@@ -28,118 +28,66 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('buildAmazonPlanPrompt', () => {
-  it('adds secondary image copy to the generation prompt', () => {
+describe('Amazon prompt builders', () => {
+  it('uses only LLM prompt content, series style guide, negative prompt, and optional style guard', () => {
     const prompt = buildAmazonPlanPrompt({
-      kind: 'lifestyle',
-      copy: 'Large Coverage for 2-3 People\\n49 / 54 / 62 in Options',
-      prompt: 'Create a lifestyle Amazon image.',
+      prompt: 'Professional Amazon main image of the exact product.',
+      negativePrompt: 'text, logo, extra accessories',
+      seriesStyleGuide: 'Use warm studio light and refined charcoal typography across the set.',
+      styleReferenceAttached: true,
     })
 
-    expect(prompt).toContain('Create a lifestyle Amazon image.')
-    expect(prompt).toContain('On-image copy to render exactly:')
-    expect(prompt).toContain('"Large Coverage for 2-3 People\n49 / 54 / 62 in Options"')
-    expect(prompt).toContain('Do not add any other text')
+    expect(prompt).toContain('Professional Amazon main image of the exact product.')
+    expect(prompt).toContain('Series style guide:')
+    expect(prompt).toContain('Use warm studio light')
+    expect(prompt).toContain('Negative prompt:')
+    expect(prompt).toContain('text, logo, extra accessories')
+    expect(prompt).toContain('The last input image is a hidden style reference')
+    expect(prompt).toContain('color tone, contrast, typography feel')
+    expect(prompt).toContain('font weight, text hierarchy')
+    expect(prompt).toContain('callout/icon treatment')
+    expect(prompt).toContain('Do not copy any placeholder words, fixed layout')
+    expect(prompt).not.toContain('Render only the copy specified below')
+    expect(prompt).not.toContain('A+ module requirements:')
   })
 
-  it('keeps main image prompts text-free even when copy is present', () => {
-    const prompt = buildAmazonPlanPrompt({
-      kind: 'main',
-      copy: 'Do not render this',
-      prompt: 'Create a pure white Amazon main image.',
-    })
-
-    expect(prompt).toBe('Create a pure white Amazon main image.')
-  })
-
-  it('does not duplicate an existing copy instruction', () => {
-    const original = [
-      'Create a detail image.',
-      '',
-      'On-image copy to render exactly:',
-      '"Existing Copy"',
-    ].join('\n')
-
-    expect(buildAmazonPlanPrompt({
-      kind: 'detail',
-      copy: 'Existing Copy',
-      prompt: original,
-    })).toBe(original)
-  })
-
-  it('filters Chinese copy before adding it to the generation prompt', () => {
-    const prompt = buildAmazonPlanPrompt({
-      kind: 'detail',
-      copy: '中文卖点\\nLeak Resistant Lid',
-      prompt: 'Create a detail Amazon image.',
-    })
-
-    expect(prompt).toContain('On-image copy to render exactly:')
-    expect(prompt).toContain('Leak Resistant Lid')
-    expect(prompt).not.toContain('中文卖点')
-  })
-})
-
-describe('buildAmazonAPlusPlanPrompt', () => {
-  it('adds A+ module size, copy, and compliance instructions to the generation prompt', () => {
+  it('builds A+ prompts with the same LLM-led structure', () => {
     const prompt = buildAmazonAPlusPlanPrompt({
-      moduleType: 'header-banner',
-      uploadSize: '970x300',
-      generationSize: '3544x1184',
-      copy: 'Built for Rainy Commutes\\nCompact Coverage',
-      prompt: 'Create a premium umbrella A+ banner.',
+      prompt: 'Premium A+ banner with the product in a refined kitchen setting.',
+      negativePrompt: 'pricing, reviews, clutter',
+      seriesStyleGuide: 'Bright ceramic editorial style.',
+      styleReferenceAttached: false,
     })
 
-    expect(prompt).toContain('Create a premium umbrella A+ banner.')
-    expect(prompt).toContain('A+ module requirements:')
-    expect(prompt).toContain('Final Seller Central recommended upload size: 970x300px')
-    expect(prompt).toContain('Generate at 3544x1184px')
-    expect(prompt).toContain('On-image copy to render exactly:')
-    expect(prompt).toContain('Built for Rainy Commutes\nCompact Coverage')
-    expect(prompt).toContain('Do not include prices')
+    expect(prompt).toContain('Premium A+ banner')
+    expect(prompt).toContain('Bright ceramic editorial style')
+    expect(prompt).toContain('pricing, reviews, clutter')
+    expect(prompt).not.toContain('The last input image is a hidden style reference')
   })
 
-  it('keeps external A+ text out of the image generation prompt', () => {
-    const plan = {
-      moduleType: 'highlight-tile' as const,
-      uploadSize: '220x220',
-      generationSize: '2048x2048',
-      copy: '',
-      textTitle: 'Built for Daily Commutes',
-      textBody: 'Soft padding protects essentials while the zipper keeps supplies secure.',
-      prompt: 'Create a clean 220x220 product highlight tile.',
-    }
+  it('builds style candidate prompts as reusable visual reference boards', () => {
+    const prompt = buildAmazonStyleCandidatePrompt({
+      label: '极简信息图',
+      description: '干净的字体和浅色背景',
+      prompt: 'Create a refined information-design style for the product.',
+      negativePrompt: 'Chinese characters, QR code, price badge',
+    }, 'Use warm off-white backgrounds and charcoal typography.')
 
-    const prompt = buildAmazonAPlusPlanPrompt(plan)
-
-    expect(prompt).toContain('Create a clean 220x220 product highlight tile.')
-    expect(prompt).not.toContain(plan.textTitle)
-    expect(prompt).not.toContain(plan.textBody)
-    expect(prompt).toContain('Do not add on-image text')
-  })
-
-  it('does not send Chinese A+ copy to the image generation prompt', () => {
-    const prompt = buildAmazonAPlusPlanPrompt({
-      moduleType: 'single-image',
-      uploadSize: '970x600',
-      generationSize: '2048x1267',
-      copy: '中文图内文案',
-      prompt: 'Create a clean A+ product module.',
-    })
-
-    expect(prompt).not.toContain('中文图内文案')
-    expect(prompt).not.toContain('On-image copy to render exactly:')
-    expect(prompt).toContain('Do not add on-image text')
+    expect(prompt).toContain('Create a refined information-design style for the product.')
+    expect(prompt).toContain('1024x1024 visual style reference board')
+    expect(prompt).toContain('typography samples')
+    expect(prompt).toContain('color palette swatches')
+    expect(prompt).toContain('lighting/material samples')
+    expect(prompt).toContain('icon/callout treatment')
+    expect(prompt).toContain('PRODUCT TITLE')
+    expect(prompt).toContain('Series style guide:')
+    expect(prompt).toContain('warm off-white backgrounds')
+    expect(prompt).toContain('Negative prompt:')
+    expect(prompt).toContain('Chinese characters, QR code, price badge')
   })
 })
 
-describe('normalizeOnImageCopy', () => {
-  it('keeps English copy lines and removes lines with CJK characters', () => {
-    expect(normalizeOnImageCopy('中文卖点\\nLeak Resistant Lid\\nBuilt for Travel')).toBe('Leak Resistant Lid\nBuilt for Travel')
-  })
-})
-
-describe('A+ module labels and text', () => {
+describe('A+ module helpers', () => {
   it('returns local Chinese module names while preserving English labels', () => {
     const highlightSpec = getAPlusModuleSpecs('standard')[4]!
     const premiumSpec = getAPlusModuleSpecs('premium')[0]!
@@ -151,7 +99,7 @@ describe('A+ module labels and text', () => {
     expect(getAPlusContentTypeLabel('standard-large')).toBe('大图版')
   })
 
-  it('formats external A+ module copy without mixing it with on-image copy', () => {
+  it('formats external A+ module copy from the LLM', () => {
     expect(formatAPlusModuleText({
       textTitle: 'Organized in Seconds',
       textBody: 'Elastic loops keep pens, pencils, and small tools easy to find.',
@@ -159,17 +107,22 @@ describe('A+ module labels and text', () => {
   })
 })
 
+function createStyleCandidates() {
+  return [1, 2, 3].map((index) => ({
+    label: `风格 ${index}`,
+    description: `第 ${index} 个视觉方向`,
+    prompt: `Create style reference ${index} for this product.`,
+    negativePrompt: `negative style ${index}`,
+  }))
+}
+
 function createApiPlans() {
-  return ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06'].map((slot, index) => ({
+  return ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06'].map((slot) => ({
     slot,
-    label: index === 0 ? '主图' : `附图 ${index}`,
-    kind: index === 0 ? 'main' : 'lifestyle',
-    objective: `Objective ${slot}`,
-    concept: `Concept ${slot}`,
-    copy: index === 0 ? '' : `Copy ${slot}`,
-    compliance: `Compliance ${slot}`,
-    scene: `Scene ${slot}`,
+    label: `${slot} 方案`,
+    planMarkdown: `## ${slot} 主图方案\n\n中文策划说明。`,
     prompt: `Create Amazon listing image ${slot} for the product.`,
+    negativePrompt: `negative ${slot}`,
   }))
 }
 
@@ -184,6 +137,8 @@ function createApiPayload(title = 'AI planned tumbler') {
       packageIncludes: '1 tumbler, 1 straw',
     },
     sellingPoints: ['Cold for 24 hours'],
+    seriesStyleGuide: 'Use a cohesive warm commercial style across the set.',
+    styleCandidates: createStyleCandidates(),
     imagePlans: createApiPlans(),
   }
 }
@@ -203,14 +158,11 @@ function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P') {
       : prefix === 'A+L'
         ? index === 0 ? 'header-banner' : 'single-image'
         : index === 0 ? 'hero-banner' : index < 4 ? 'feature-image' : 'brand-story',
-    objective: `Objective ${slot}`,
-    concept: `Concept ${slot}`,
-    copy: `Copy ${slot}`,
+    planMarkdown: `## ${slot} 模块方案\n\n中文 A+ 策划说明。`,
     textTitle: prefix === 'A+S' && index >= 4 ? `Benefit ${slot}` : '',
     textBody: prefix === 'A+S' && index >= 4 ? `External A+ copy for ${slot}.` : '',
-    compliance: `Compliance ${slot}`,
-    scene: `Scene ${slot}`,
     prompt: `Create A+ module ${slot} for the product.`,
+    negativePrompt: `negative ${slot}`,
   }))
 }
 
@@ -225,30 +177,15 @@ function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P', title = 'AI planned A
       packageIncludes: '1 tumbler, 1 straw',
     },
     sellingPoints: ['Cold for 24 hours'],
+    seriesStyleGuide: 'Use a cohesive A+ visual style across the module set.',
+    styleCandidates: createStyleCandidates(),
     aPlusPlans: createAPlusPlans(prefix),
   }
 }
 
-function createSseResponse(events: Array<Record<string, unknown>>, contentType = 'text/event-stream') {
-  const body = [
-    ...events.map((event) => [
-      `event: ${typeof event.type === 'string' ? event.type : 'message'}`,
-      `data: ${JSON.stringify(event)}`,
-      '',
-    ].join('\n')),
-    'data: [DONE]\n',
-  ].join('\n')
-
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': contentType },
-  })
-}
-
 describe('callAmazonPlannerApi', () => {
-  it('uses the active API profile URL and key for Responses API planning', async () => {
+  it('uses Responses API planning with JSON schema and attached reference images', async () => {
     const apiPayload = createApiPayload()
-    apiPayload.imagePlans[1]!.copy = '中文卖点\nLeak Resistant Lid'
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
       output_text: JSON.stringify(apiPayload),
     }), {
@@ -257,47 +194,103 @@ describe('callAmazonPlannerApi', () => {
     }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const profile = createDefaultOpenAIProfile({
-      baseUrl: 'https://api.example.com/v1',
-      apiKey: 'user-api-key',
-      apiMode: 'responses',
-      model: 'gpt-planner-profile',
-    })
     const result = await callAmazonPlannerApi({
       listingText: SAMPLE_LISTING,
       baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
-      profile,
+      referenceImageDataUrls: ['data:image/png;base64,ref'],
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
     })
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]!
     expect(url).toBe('https://api.example.com/v1/responses')
-    expect(init?.headers).toMatchObject({
-      Authorization: 'Bearer user-api-key',
-      'Content-Type': 'application/json',
-    })
     const body = JSON.parse(String(init?.body))
-    expect(body.model).toBe('gpt-planner-profile')
-    expect(body.instructions).toContain('Embedded Amazon Listing knowledge rules')
-    expect(body.instructions).toContain('Plan exactly 7 gallery images: MAIN + PT01-PT06')
+    expect(body.instructions).toContain('The application only fixes the slot count and order')
+    expect(body.instructions).toContain('Amazon Listing reference material for the planner')
     expect(body.instructions).toContain('pure white background RGB 255,255,255')
-    expect(body.instructions).toContain('product fills about 85% of the frame')
-    expect(body.instructions).toContain('no text, logos, watermark')
-    expect(body.instructions).toContain('copy must be short natural US-English')
+    expect(body.instructions).toContain('product fills about 85%')
+    expect(body.instructions).toContain('no text, logo, watermark')
+    expect(body.instructions).toContain('Do not use Amazon, Prime, Alexa, Amazon Choice')
+    expect(body.instructions).toContain('visual style reference board')
+    expect(body.instructions).toContain('typography samples')
+    expect(body.instructions).toContain('color palette swatches')
+    expect(body.instructions).toContain('lighting/material samples')
+    expect(body.instructions).toContain('icon/callout treatment')
+    expect(body.instructions).not.toContain('Embedded Amazon Listing knowledge rules')
+    expect(body.instructions).not.toContain('mandatory phrase')
     expect(body.text.format.type).toBe('json_schema')
-    expect(body.text.format.schema.properties.imagePlans.items.properties.copy.description).toContain('never include Chinese')
-    expect(body.stream).toBe(false)
+    expect(body.text.format.schema.required).toContain('seriesStyleGuide')
+    expect(body.text.format.schema.required).toContain('styleCandidates')
+    expect(body.text.format.schema.required).not.toContain('visualSystem')
+    expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('planMarkdown')
+    expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('negativePrompt')
     expect(body.input[0].content[0].text).toContain('Parse this Amazon listing copy')
+    expect(body.input[0].content[1]).toEqual({ type: 'input_image', image_url: 'data:image/png;base64,ref' })
     expect(result.parsed.title).toBe('AI planned tumbler')
-    expect(result.plans).toHaveLength(7)
-    expect(result.plans[1]?.copy).toBe('Leak Resistant Lid')
-    expect(result.aPlusPlans).toHaveLength(0)
+    expect(result.seriesStyleGuide).toContain('cohesive warm')
+    expect(result.styleCandidates).toHaveLength(3)
+    expect(result.plans[0]).toMatchObject({
+      slot: 'MAIN',
+      planMarkdown: expect.stringContaining('MAIN 主图方案'),
+      negativePrompt: 'negative MAIN',
+    })
   })
 
-  it('parses Standard A+ planning output and fills fixed module sizes', async () => {
-    const apiPayload = createAPlusPayload('A+S', 'Standard A+ tumbler')
+  it('uses Chat Completions planning with multimodal user content when references are present', async () => {
+    const apiPayload = createApiPayload('DeepSeek planned tumbler')
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
-      output_text: JSON.stringify(apiPayload),
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: JSON.stringify(apiPayload),
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
+      referenceImageDataUrls: ['data:image/png;base64,ref-chat'],
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.deepseek.com',
+        apiKey: 'deepseek-key',
+        apiMode: 'chat',
+        model: DEFAULT_CHAT_MODEL,
+      }),
+    })
+
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('https://api.deepseek.com/chat/completions')
+    const body = JSON.parse(String(init?.body))
+    expect(body.messages[0].content).toContain('Return a valid JSON object only')
+    expect(body.messages[0].content).toContain('styleCandidates array of exactly 3')
+    expect(body.messages[0].content).toContain('Amazon Listing reference material for the planner')
+    expect(body.messages[0].content).toContain('visual style reference board')
+    expect(body.messages[1].content[0]).toMatchObject({ type: 'text' })
+    expect(body.messages[1].content[1]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,ref-chat' },
+    })
+    expect(body.response_format).toEqual({ type: 'json_object' })
+    expect(result.parsed.title).toBe('DeepSeek planned tumbler')
+    expect(result.plans).toHaveLength(7)
+  })
+
+  it('parses Standard A+ output and fills fixed module sizes without deciding content locally', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(createAPlusPayload('A+S', 'Standard A+ tumbler')),
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -320,28 +313,31 @@ describe('callAmazonPlannerApi', () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     expect(body.text.format.name).toBe('amazon_aplus_image_plan')
-    expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('textTitle')
-    expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('textBody')
-    expect(body.text.format.schema.properties.aPlusPlans.items.properties.copy.description).toContain('US-English')
-    expect(body.text.format.schema.properties.aPlusPlans.items.required).toContain('textTitle')
-    expect(body.text.format.schema.properties.aPlusPlans.items.required).toContain('textBody')
-    expect(body.instructions).toContain('Embedded Amazon A+ knowledge rules')
-    expect(body.instructions).toContain('Standard module upload sizes: Header Banner 970x300, Single Image 970x600, Highlight Tile 220x220')
-    expect(body.instructions).toContain('Premium module upload sizes: Hero Banner 1464x600, Feature Image 970x600, Brand Story 463x625')
-    expect(body.instructions).toContain('no prices, discounts, coupons, free shipping, QR codes, phone numbers, email addresses')
-    expect(body.instructions).toContain('copy, textTitle, and textBody must be short natural US-English')
-    expect(body.input[0].content[0].text).toContain('Standard A+ Content')
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('planMarkdown')
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('negativePrompt')
+    expect(body.text.format.schema.required).toContain('seriesStyleGuide')
+    expect(body.text.format.schema.required).not.toContain('visualSystem')
+    expect(body.instructions).toContain('The application only fixes the module order, module type, upload size, and generation size')
+    expect(body.instructions).toContain('Amazon A+ reference material for the planner')
+    expect(body.instructions).toContain('Header Banner 970x300')
+    expect(body.instructions).toContain('Single Image 970x600')
+    expect(body.instructions).toContain('Highlight Tile 220x220')
+    expect(body.instructions).toContain('Comparison Thumbnail 150x300')
+    expect(body.instructions).toContain('QR codes')
+    expect(body.instructions).toContain('mobile-readable')
+    expect(body.instructions).toContain('visual style reference board')
+    expect(body.instructions).toContain('typography samples')
+    expect(body.instructions).toContain('color palette swatches')
+    expect(body.instructions).toContain('lighting/material samples')
+    expect(body.instructions).not.toContain('A+ compliance:')
     expect(result.mode).toBe('aplus')
-    expect(result.parsed.title).toBe('Standard A+ tumbler')
-    expect(result.plans).toHaveLength(0)
     expect(result.aPlusPlans).toHaveLength(8)
     expect(result.aPlusPlans[0]).toMatchObject({
       slot: 'A+S01',
       moduleType: 'header-banner',
       uploadSize: '970x300',
+      planMarkdown: expect.stringContaining('A+S01 模块方案'),
     })
-    expect(result.aPlusPlans[0]?.generationSize).toMatch(/^\d+x\d+$/)
-    expect(result.aPlusPlans[0]?.generationSize).not.toBe('970x300')
     expect(result.aPlusPlans[4]).toMatchObject({
       slot: 'A+S05',
       moduleType: 'highlight-tile',
@@ -349,216 +345,5 @@ describe('callAmazonPlannerApi', () => {
       textTitle: 'Benefit A+S05',
       textBody: 'External A+ copy for A+S05.',
     })
-    expect(formatAPlusModuleText(result.aPlusPlans[4]!)).toBe('Benefit A+S05\n\nExternal A+ copy for A+S05.')
-  })
-
-  it('parses large-image A+ template output as one banner plus four big images', async () => {
-    const apiPayload = createAPlusPayload('A+L', 'Large image A+ tumbler')
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
-      output_text: JSON.stringify(apiPayload),
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await callAmazonPlannerApi({
-      listingText: SAMPLE_LISTING,
-      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
-      profile: createDefaultOpenAIProfile({
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'user-api-key',
-        apiMode: 'responses',
-        model: 'gpt-planner-profile',
-      }),
-      mode: 'aplus',
-      aPlusType: 'standard-large',
-      aPlusGenerationTier: '2K',
-    })
-
-    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
-    expect(body.input[0].content[0].text).toContain('大图版 A+ Content')
-    expect(body.instructions).toContain('one 970x300 header banner and four 970x600 single-image modules')
-    expect(result.mode).toBe('aplus')
-    expect(result.aPlusType).toBe('standard-large')
-    expect(result.aPlusPlans).toHaveLength(5)
-    expect(result.aPlusPlans[0]).toMatchObject({
-      slot: 'A+L01',
-      moduleType: 'header-banner',
-      uploadSize: '970x300',
-    })
-    expect(result.aPlusPlans.slice(1).every((plan) => plan.moduleType === 'single-image')).toBe(true)
-    expect(result.aPlusPlans[4]).toMatchObject({
-      slot: 'A+L05',
-      moduleType: 'single-image',
-      uploadSize: '970x600',
-    })
-  })
-
-  it('parses Premium A+ planning output and fills fixed module sizes', async () => {
-    const apiPayload = createAPlusPayload('A+P', 'Premium A+ tumbler')
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
-      output_text: JSON.stringify(apiPayload),
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await callAmazonPlannerApi({
-      listingText: SAMPLE_LISTING,
-      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
-      profile: createDefaultOpenAIProfile({
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'user-api-key',
-        apiMode: 'responses',
-        model: 'gpt-planner-profile',
-      }),
-      mode: 'aplus',
-      aPlusType: 'premium',
-      aPlusGenerationTier: '4K',
-    })
-
-    expect(result.mode).toBe('aplus')
-    expect(result.aPlusType).toBe('premium')
-    expect(result.aPlusPlans).toHaveLength(6)
-    expect(result.aPlusPlans[0]).toMatchObject({
-      slot: 'A+P01',
-      moduleType: 'hero-banner',
-      uploadSize: '1464x600',
-    })
-    expect(result.aPlusPlans[4]).toMatchObject({
-      slot: 'A+P05',
-      moduleType: 'brand-story',
-      uploadSize: '463x625',
-    })
-  })
-
-  it('parses event-stream Responses API planning output from response.completed', async () => {
-    const apiPayload = createApiPayload('SSE completed tumbler')
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => createSseResponse([
-      {
-        type: 'response.completed',
-        response: {
-          output: [
-            {
-              type: 'message',
-              content: [{ type: 'output_text', text: JSON.stringify(apiPayload) }],
-            },
-          ],
-        },
-      },
-    ]))
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await callAmazonPlannerApi({
-      listingText: SAMPLE_LISTING,
-      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
-      profile: createDefaultOpenAIProfile({
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'user-api-key',
-        apiMode: 'responses',
-        model: 'gpt-planner-profile',
-      }),
-    })
-
-    expect(result.parsed.title).toBe('SSE completed tumbler')
-    expect(result.plans).toHaveLength(7)
-  })
-
-  it('parses event-stream Responses API planning output from output text events', async () => {
-    const apiPayload = createApiPayload('SSE delta tumbler')
-    const text = JSON.stringify(apiPayload)
-    const midpoint = Math.floor(text.length / 2)
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => createSseResponse([
-      { type: 'response.output_text.delta', delta: text.slice(0, midpoint) },
-      { type: 'response.output_text.delta', delta: text.slice(midpoint) },
-      { type: 'response.output_text.done', text },
-    ]))
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await callAmazonPlannerApi({
-      listingText: SAMPLE_LISTING,
-      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
-      profile: createDefaultOpenAIProfile({
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'user-api-key',
-        apiMode: 'responses',
-        model: 'gpt-planner-profile',
-      }),
-    })
-
-    expect(result.parsed.title).toBe('SSE delta tumbler')
-    expect(result.plans).toHaveLength(7)
-  })
-
-  it('parses event-stream planning output even when a compatible provider reports a JSON content type', async () => {
-    const apiPayload = createApiPayload('SSE mislabeled tumbler')
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => createSseResponse([
-      {
-        type: 'response.output_item.done',
-        item: {
-          type: 'message',
-          content: [{ type: 'output_text', text: JSON.stringify(apiPayload) }],
-        },
-      },
-    ], 'application/json'))
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await callAmazonPlannerApi({
-      listingText: SAMPLE_LISTING,
-      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
-      profile: createDefaultOpenAIProfile({
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'user-api-key',
-        apiMode: 'responses',
-        model: 'gpt-planner-profile',
-      }),
-    })
-
-    expect(result.parsed.title).toBe('SSE mislabeled tumbler')
-    expect(result.plans).toHaveLength(7)
-  })
-
-  it('preserves stream failure messages on planner failures', async () => {
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => createSseResponse([
-      {
-        type: 'response.failed',
-        error: { message: 'Structured output is unavailable on this gateway.' },
-      },
-    ]))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await expect(callAmazonPlannerApi({
-      listingText: SAMPLE_LISTING,
-      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
-      profile: createDefaultOpenAIProfile({
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'user-api-key',
-        apiMode: 'responses',
-        model: 'gpt-planner-profile',
-      }),
-    })).rejects.toThrow('Structured output is unavailable on this gateway.')
-  })
-
-  it('preserves HTTP status and API message on planner failures', async () => {
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
-      error: { message: 'The requested endpoint /v1/responses is not available.' },
-    }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await expect(callAmazonPlannerApi({
-      listingText: SAMPLE_LISTING,
-      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
-      profile: createDefaultOpenAIProfile({
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'user-api-key',
-        apiMode: 'responses',
-        model: 'gpt-planner-profile',
-      }),
-    })).rejects.toThrow('HTTP 404: The requested endpoint /v1/responses is not available.')
   })
 })

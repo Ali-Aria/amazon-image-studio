@@ -20,6 +20,7 @@ const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) ||
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
 export const DEFAULT_IMAGES_MODEL = 'gpt-image-2'
 export const DEFAULT_RESPONSES_MODEL = 'gpt-5.5'
+export const DEFAULT_CHAT_MODEL = 'deepseek-v4-flash'
 export const DEFAULT_FAL_BASE_URL = 'https://fal.run'
 export const DEFAULT_FAL_MODEL = 'openai/gpt-image-2'
 export const DEFAULT_OPENAI_PROFILE_ID = 'default-openai'
@@ -380,7 +381,7 @@ function normalizeProviderDraft(input: unknown, provider: ApiProvider, customPro
   const fallback = provider === 'fal' ? createDefaultFalProfile() : createDefaultOpenAIProfile()
   const baseUrl = typeof input.baseUrl === 'string' ? input.baseUrl : undefined
   const model = typeof input.model === 'string' && input.model.trim() ? input.model : undefined
-  const apiMode = input.apiMode === 'responses' ? 'responses' : input.apiMode === 'images' ? 'images' : undefined
+  const apiMode = input.apiMode === 'responses' || input.apiMode === 'chat' ? input.apiMode : input.apiMode === 'images' ? 'images' : undefined
   const knownProvider = provider === 'fal' || provider === 'openai' || customProviderIds.has(provider)
   if (!knownProvider) return undefined
 
@@ -408,7 +409,7 @@ function normalizeProviderDrafts(input: unknown, customProviderIds: Set<string>)
 }
 
 export function isAmazonPlannerProfile(profile: Pick<ApiProfile, 'provider' | 'apiMode'>): boolean {
-  return profile.provider === 'openai' && profile.apiMode === 'responses'
+  return profile.provider === 'openai' && (profile.apiMode === 'responses' || profile.apiMode === 'chat')
 }
 
 function resolveAmazonPlannerProfileId(profiles: ApiProfile[], value: unknown): string {
@@ -423,7 +424,7 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
   const rawProvider = typeof record.provider === 'string' ? record.provider : ''
   const provider: ApiProvider = rawProvider === 'fal' || customProviderIds.has(rawProvider) ? rawProvider : 'openai'
   const defaults = provider === 'fal' ? createDefaultFalProfile(fallback) : createDefaultOpenAIProfile(fallback)
-  const apiMode: ApiMode = record.apiMode === 'responses' ? 'responses' : 'images'
+  const apiMode: ApiMode = record.apiMode === 'responses' || record.apiMode === 'chat' ? record.apiMode : 'images'
   const rawBaseUrl = typeof record.baseUrl === 'string' ? record.baseUrl : defaults.baseUrl
 
   return {
@@ -453,8 +454,8 @@ function validateImportedProfileRecord(input: unknown) {
     throw new Error('JSON 包含 Markdown 链接，请粘贴纯文本')
   }
 
-  if (typeof input.apiMode === 'string' && input.apiMode !== 'images' && input.apiMode !== 'responses') {
-    throw new Error('apiMode 格式无效，应为 images 或 responses')
+  if (typeof input.apiMode === 'string' && input.apiMode !== 'images' && input.apiMode !== 'responses' && input.apiMode !== 'chat') {
+    throw new Error('apiMode 格式无效，应为 images、responses 或 chat')
   }
 }
 
@@ -467,7 +468,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : '',
     model: typeof record.model === 'string' && record.model.trim() ? record.model : DEFAULT_IMAGES_MODEL,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : DEFAULT_API_TIMEOUT,
-    apiMode: record.apiMode === 'responses' ? 'responses' : 'images',
+    apiMode: record.apiMode === 'responses' || record.apiMode === 'chat' ? record.apiMode : 'images',
     codexCli: Boolean(record.codexCli),
     apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : DEFAULT_OPENAI_API_PROXY,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
@@ -596,7 +597,7 @@ export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): A
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : profile.apiKey,
     model: typeof record.model === 'string' && record.model.trim() ? record.model : profile.model,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : profile.timeout,
-    apiMode: record.apiMode === 'images' || record.apiMode === 'responses' ? record.apiMode : profile.apiMode,
+    apiMode: record.apiMode === 'images' || record.apiMode === 'responses' || record.apiMode === 'chat' ? record.apiMode : profile.apiMode,
     codexCli: typeof record.codexCli === 'boolean' ? record.codexCli : profile.codexCli,
     apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : profile.apiProxy,
     streamImages: typeof record.streamImages === 'boolean' ? record.streamImages : profile.streamImages,

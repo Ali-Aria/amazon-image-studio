@@ -36,4 +36,10 @@ describe('buildApiUrl', () => {
       'http://api.example.com/v1/responses',
     )
   })
+
+  it('can build Chat Completions URLs without forcing a v1 segment', () => {
+    expect(buildApiUrl('https://api.deepseek.com', 'chat/completions', null, false, { prefixV1: false })).toBe(
+      'https://api.deepseek.com/chat/completions',
+    )
+  })
 })

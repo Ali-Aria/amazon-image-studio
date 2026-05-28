@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react'
+import { DEFAULT_PARAMS } from '../types'
 import type { TaskRecord } from '../types'
 import { useStore, ensureImageThumbnailCached, subscribeImageThumbnail, updateTaskInStore, retryTask } from '../store'
 import { formatImageRatio } from '../lib/size'
@@ -333,7 +334,7 @@ export default function TaskCard({
   const showSize = task.params.size !== 'auto' || sizeDisplay.isMismatch
 
   const formatDisplay = getParamDisplay(task, 'output_format')
-  const showFormat = task.params.output_format !== 'png' || formatDisplay.isMismatch
+  const showFormat = task.params.output_format !== DEFAULT_PARAMS.output_format || formatDisplay.isMismatch
 
   const nDisplay = getParamDisplay(task, 'n')
   const isAgentTask = task.sourceMode === 'agent' || Boolean(task.agentConversationId || task.agentRoundId)

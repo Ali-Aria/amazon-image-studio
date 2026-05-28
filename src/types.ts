@@ -1,6 +1,6 @@
 // ===== 设置 =====
 
-export type ApiMode = 'images' | 'responses'
+export type ApiMode = 'images' | 'responses' | 'chat'
 export type AppMode = 'gallery' | 'agent'
 export type TaskWorkflow = 'amazon-listing' | 'amazon-aplus' | 'gallery' | 'agent' | 'unknown'
 export type TaskAspect = 'square' | 'landscape' | 'portrait'
@@ -115,11 +115,13 @@ export interface TaskParams {
   n: number
 }
 
+export const DEFAULT_OUTPUT_COMPRESSION = 70
+
 export const DEFAULT_PARAMS: TaskParams = {
   size: 'auto',
   quality: 'auto',
-  output_format: 'png',
-  output_compression: null,
+  output_format: 'jpeg',
+  output_compression: DEFAULT_OUTPUT_COMPRESSION,
   moderation: 'auto',
   n: 1,
 }
@@ -213,7 +215,90 @@ export interface TaskRecord {
     workflow?: TaskWorkflow
     amazonSlot?: string
     aPlusType?: 'standard' | 'standard-large' | 'premium'
+    styleReferenceImageId?: string
   }
+}
+
+export interface AmazonVisualSystem {
+  styleName: string
+  colorPalette: string
+  lighting: string
+  background: string
+  typography: string
+  composition: string
+  overlayStyle: string
+}
+
+export interface AmazonPlannerSessionDraft {
+  productTitle: string
+  category: string
+  brand: string
+  color: string
+  material: string
+  audience: string
+  sellingPoints: string
+  packageIncludes: string
+  scene: string
+  forbidden: string
+  kind?: string
+}
+
+export interface AmazonPlannerSessionStyleCandidate {
+  label: string
+  description: string
+  prompt: string
+  negativePrompt: string
+}
+
+export interface AmazonPlannerSessionImagePlan {
+  slot: string
+  label: string
+  kind?: string
+  planMarkdown: string
+  prompt: string
+  negativePrompt: string
+}
+
+export interface AmazonPlannerSessionAPlusPlan {
+  slot: string
+  label: string
+  moduleType: string
+  uploadSize: string
+  generationSize: string
+  planMarkdown: string
+  textTitle: string
+  textBody: string
+  prompt: string
+  negativePrompt: string
+}
+
+export interface AmazonPlannerSessionStyleImage {
+  candidateIndex: number
+  imageId: string
+}
+
+export interface AmazonPlannerSession {
+  id: string
+  title: string
+  mode: 'listing' | 'aplus'
+  aPlusType: 'standard' | 'standard-large' | 'premium'
+  resolution: '2k' | '4k'
+  listingText: string
+  referenceImageIds: string[]
+  draft: AmazonPlannerSessionDraft
+  seriesStyleGuides: {
+    listing: string
+    aplus: string
+  }
+  styleCandidates: AmazonPlannerSessionStyleCandidate[]
+  styleImages: AmazonPlannerSessionStyleImage[]
+  selectedStyleIndex: number | null
+  imagePlans: AmazonPlannerSessionImagePlan[]
+  aPlusPlans: AmazonPlannerSessionAPlusPlan[]
+  selectedPlanIndex: number | null
+  selectedAPlusPlanIndex: number | null
+  createdAt: number
+  updatedAt: number
 }
 
 // ===== Agent 模式 =====
@@ -410,6 +495,7 @@ export interface ExportData {
   settings?: AppSettings
   tasks?: TaskRecord[]
   agentConversations?: AgentConversation[]
+  amazonPlannerSessions?: AmazonPlannerSession[]
   /** imageId → 图片信息 */
   imageFiles?: Record<string, {
     path: string

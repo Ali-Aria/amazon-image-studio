@@ -159,6 +159,10 @@ function isOpenAIResponsesPath(pathname) {
   return pathname.endsWith('/v1/responses')
 }
 
+function isOpenAIChatPath(pathname) {
+  return pathname.endsWith('/chat/completions')
+}
+
 function isCustomPath(pathname) {
   return pathname === '/custom/random-image' || pathname === '/custom/generate'
 }
@@ -172,7 +176,8 @@ function createImagesStreamEvents(req, mode, n, isEdit) {
     created_at: created,
     partial_image_index: i,
     b64_json: tinyPngBase64,
-    output_format: 'png',
+    output_format: 'jpeg',
+    output_compression: 70,
     quality: 'auto',
     size: '1024x1024',
   }))
@@ -180,7 +185,8 @@ function createImagesStreamEvents(req, mode, n, isEdit) {
     type: `${prefix}.completed`,
     created_at: created,
     b64_json: tinyPngBase64,
-    output_format: 'png',
+    output_format: 'jpeg',
+    output_compression: 70,
     quality: 'auto',
     size: '1024x1024',
   }))
@@ -208,7 +214,8 @@ function createResponsesStreamEvents(mode) {
           status: 'completed',
           revised_prompt: `mock ${mode} response image`,
           result: tinyPngBase64,
-          output_format: 'png',
+          output_format: 'jpeg',
+          output_compression: 70,
           quality: 'auto',
           size: '1024x1024',
         }],
@@ -263,6 +270,22 @@ async function handleResponses(req, res, url) {
 
   sendJson(res, 200, {
     output: createResponsesStreamEvents(mode).at(-1)?.response?.output ?? [],
+  })
+}
+
+async function handleChat(req, res) {
+  await readBody(req)
+  sendJson(res, 200, {
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: '{}',
+        },
+        finish_reason: 'stop',
+      },
+    ],
   })
 }
 
@@ -353,6 +376,11 @@ const server = http.createServer(async (req, res) => {
 
     if (isOpenAIResponsesPath(url.pathname)) {
       await handleResponses(req, res, url)
+      return
+    }
+
+    if (isOpenAIChatPath(url.pathname)) {
+      await handleChat(req, res, url)
       return
     }
 

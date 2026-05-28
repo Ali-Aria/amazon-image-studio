@@ -19,16 +19,20 @@ export interface ListingParseResult {
   inferred: Partial<AmazonPromptDraft>
 }
 
+export interface AmazonStyleCandidate {
+  label: string
+  description: string
+  prompt: string
+  negativePrompt: string
+}
+
 export interface AmazonImagePlan {
   slot: string
   label: string
-  kind: AmazonImageKind
-  objective: string
-  concept: string
-  copy: string
-  compliance: string
-  scene: string
+  kind?: AmazonImageKind
+  planMarkdown: string
   prompt: string
+  negativePrompt: string
 }
 
 export interface AmazonAPlusModuleSpec {
@@ -48,14 +52,11 @@ export interface AmazonAPlusPlan {
   moduleType: APlusModuleKind
   uploadSize: string
   generationSize: string
-  objective: string
-  concept: string
-  copy: string
+  planMarkdown: string
   textTitle: string
   textBody: string
-  compliance: string
-  scene: string
   prompt: string
+  negativePrompt: string
 }
 
 export const STANDARD_A_PLUS_MODULE_SPECS: AmazonAPlusModuleSpec[] = [
@@ -171,6 +172,23 @@ export const OPTIONAL_A_PLUS_MODULE_SPECS: AmazonAPlusModuleSpec[] = [
 ]
 
 const CJK_ON_IMAGE_TEXT_RE = /[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/
+const STYLE_REFERENCE_GUARD = [
+  'Style reference rule:',
+  '- The last input image is a hidden style reference selected by the user.',
+  '- Use it only for overall color tone, contrast, typography feel, font weight, text hierarchy, lighting, material finish, visual polish, and callout/icon treatment.',
+  '- If the actual prompt requires on-image text, borrow only the typography feel, hierarchy, spacing rhythm, and graphic language.',
+  '- Do not copy any placeholder words, fixed layout, color swatch positions, exact composition, product arrangement, product count, props, or scene from the style reference board.',
+  '- Follow the prompt below for the actual image content and layout.',
+].join('\n')
+
+const STYLE_REFERENCE_BOARD_REQUIREMENTS = [
+  'Style reference board requirements:',
+  '- Create a 1024x1024 visual style reference board, not a final Amazon product image.',
+  '- The board must visibly include typography samples: a large headline, a smaller subheading, numeric callout samples, short label/caption samples, and icon/callout treatment.',
+  '- Use generic English placeholder typography only, such as PRODUCT TITLE, KEY BENEFIT, DETAIL CALLOUT, 01, 02, 03. Do not use Chinese characters, real product claims, brand logos, Amazon marks, prices, promotions, QR codes, contact details, or external URLs.',
+  '- The board must visibly include color palette swatches, background/material texture samples, lighting/material samples, and a small product-finish or product-detail style sample derived from the uploaded product references.',
+  '- Keep this as a reusable style guide image for later generations, with clear examples of font feeling, color tone, lighting, material finish, icon/callout language, and visual polish.',
+].join('\n')
 
 export function normalizeOnImageCopy(copy: string): string {
   return copy
@@ -181,20 +199,40 @@ export function normalizeOnImageCopy(copy: string): string {
     .join('\n')
 }
 
-export function buildAmazonPlanPrompt(plan: Pick<AmazonImagePlan, 'kind' | 'copy' | 'prompt'>): string {
-  const prompt = plan.prompt.trim()
-  const copy = normalizeOnImageCopy(plan.copy)
-  if (!copy || plan.kind === 'main') return prompt
-  if (/on-image copy to render exactly:/i.test(prompt)) return prompt
+function formatPromptBlock(options: {
+  prompt: string
+  negativePrompt?: string
+  seriesStyleGuide?: string | null
+  styleReferenceAttached?: boolean
+}) {
+  const sections = [
+    options.prompt.trim(),
+    options.seriesStyleGuide?.trim()
+      ? `Series style guide:\n${options.seriesStyleGuide.trim()}`
+      : '',
+    options.negativePrompt?.trim()
+      ? `Negative prompt:\n${options.negativePrompt.trim()}`
+      : '',
+    options.styleReferenceAttached ? STYLE_REFERENCE_GUARD : '',
+  ].filter(Boolean)
 
+  return sections.join('\n\n')
+}
+
+export function buildAmazonPlanPrompt(plan: Pick<AmazonImagePlan, 'prompt' | 'negativePrompt'> & {
+  seriesStyleGuide?: string | null
+  styleReferenceAttached?: boolean
+}): string {
+  return formatPromptBlock(plan)
+}
+
+export function buildAmazonStyleCandidatePrompt(candidate: AmazonStyleCandidate, seriesStyleGuide?: string | null) {
   return [
-    prompt,
-    '',
-    'On-image copy to render exactly:',
-    `"${copy}"`,
-    '',
-    'Render this text cleanly and legibly. Do not add any other text, prices, reviews, ratings, badges, or marketplace marks.',
-  ].join('\n')
+    candidate.prompt.trim(),
+    STYLE_REFERENCE_BOARD_REQUIREMENTS,
+    seriesStyleGuide?.trim() ? `Series style guide:\n${seriesStyleGuide.trim()}` : '',
+    candidate.negativePrompt.trim() ? `Negative prompt:\n${candidate.negativePrompt.trim()}` : '',
+  ].filter(Boolean).join('\n\n')
 }
 
 function formatAPlusUploadSize(spec: Pick<AmazonAPlusModuleSpec, 'uploadWidth' | 'uploadHeight'>): string {
@@ -301,30 +339,9 @@ export function withAPlusGenerationSizes(plans: AmazonAPlusPlan[], tier: SizeTie
   }))
 }
 
-export function buildAmazonAPlusPlanPrompt(plan: Pick<AmazonAPlusPlan, 'moduleType' | 'uploadSize' | 'generationSize' | 'copy' | 'prompt'>): string {
-  const prompt = plan.prompt.trim()
-  if (/a\+ module requirements:/i.test(prompt)) return prompt
-
-  const copy = normalizeOnImageCopy(plan.copy)
-  const copyBlock = copy
-    ? [
-        'On-image copy to render exactly:',
-        `"${copy}"`,
-        'Render this text cleanly, with large mobile-readable typography and no extra text.',
-      ]
-    : [
-        'Do not add on-image text unless it is physically present on the product or packaging reference.',
-      ]
-
-  return [
-    prompt,
-    '',
-    'A+ module requirements:',
-    `- Module type: ${plan.moduleType}.`,
-    `- Final Seller Central recommended upload size: ${plan.uploadSize}px.`,
-    `- Generate at ${plan.generationSize}px while keeping all essential product details and text inside a central safe area that can be cropped/exported to ${plan.uploadSize}px.`,
-    '- RGB color space, sharp commercial product photography, clean layout, consistent brand style, high resolution, no pixelation.',
-    ...copyBlock.map((line) => `- ${line}`),
-    '- Do not include prices, discounts, coupons, free shipping, QR codes, phone numbers, email addresses, external URLs, reviews, star ratings, Amazon/Prime/Alexa/Amazon Choice/Best Seller badges, competitor names, unsupported guarantees, or medical/eco claims without proof.',
-  ].join('\n')
+export function buildAmazonAPlusPlanPrompt(plan: Pick<AmazonAPlusPlan, 'prompt' | 'negativePrompt'> & {
+  seriesStyleGuide?: string | null
+  styleReferenceAttached?: boolean
+}): string {
+  return formatPromptBlock(plan)
 }

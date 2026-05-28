@@ -1,4 +1,4 @@
-import { DEFAULT_PARAMS, type AppSettings, type TaskParams } from '../types'
+import { DEFAULT_OUTPUT_COMPRESSION, DEFAULT_PARAMS, type AppSettings, type TaskParams } from '../types'
 import { getActiveApiProfile } from './apiProfiles'
 import { normalizeImageSize } from './size'
 
@@ -31,14 +31,21 @@ export function normalizeParamsForSettings(
     if (!options.hasInputImages && nextParams.size === 'auto') nextParams.size = DEFAULT_FAL_IMAGE_SIZE
     if (nextParams.quality === 'auto') nextParams.quality = 'high'
     nextParams.moderation = DEFAULT_PARAMS.moderation
-    nextParams.output_compression = DEFAULT_PARAMS.output_compression
+    nextParams.output_compression = null
   }
 
   if (nextParams.output_format === 'png') {
-    nextParams.output_compression = DEFAULT_PARAMS.output_compression
+    nextParams.output_compression = null
+  } else if (activeProfile.provider !== 'fal') {
+    nextParams.output_compression = normalizeOutputCompression(nextParams.output_compression)
   }
 
   return nextParams
+}
+
+function normalizeOutputCompression(value: number | null): number {
+  if (value == null || !Number.isFinite(value)) return DEFAULT_OUTPUT_COMPRESSION
+  return Math.min(100, Math.max(0, Math.trunc(value)))
 }
 
 export function getChangedParams(current: TaskParams, next: TaskParams): Partial<TaskParams> {

@@ -54,8 +54,8 @@ export default function App() {
   return (
     <>
       <Header />
-      <main data-home-main data-drag-select-surface className="pb-48">
-        <div className="safe-area-x max-w-7xl mx-auto">
+      <main data-home-main data-drag-select-surface className="home-main-with-dock pb-48 lg:pb-10">
+        <div className="safe-area-x max-w-7xl mx-auto lg:!px-6">
           <AmazonPlanner />
           <SearchBar />
           <TaskGrid />
