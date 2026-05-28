@@ -337,6 +337,9 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
 
 /** API 支持的最大参考图数量 */
 const API_MAX_IMAGES = 16
+const DESKTOP_DOCK_MIN_WIDTH = 1024
+const DESKTOP_DOCK_BOTTOM_CLEARANCE = 32
+const AT_IMAGE_MENU_WIDTH = 256
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
@@ -503,6 +506,7 @@ export default function InputBar() {
   const textareaRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const imagesRef = useRef<HTMLDivElement>(null)
+  const paramsPanelRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(42)
 
   const [isDragging, setIsDragging] = useState(false)
@@ -538,6 +542,11 @@ export default function InputBar() {
   const updateInputBarClearance = useCallback(() => {
     const bar = cardRef.current?.closest<HTMLElement>('[data-input-bar]')
     if (!bar) return
+
+    if (window.innerWidth >= DESKTOP_DOCK_MIN_WIDTH) {
+      document.documentElement.style.setProperty('--input-bar-clearance', `${DESKTOP_DOCK_BOTTOM_CLEARANCE}px`)
+      return
+    }
 
     const rect = bar.getBoundingClientRect()
     const clearance = Math.max(0, window.innerHeight - rect.top)
@@ -830,8 +839,9 @@ export default function InputBar() {
       return
     }
 
-    setOutputCompressionInput(String(nextValue))
-    setParams({ output_compression: nextValue })
+    const clampedValue = Math.min(100, Math.max(0, Math.trunc(nextValue)))
+    setOutputCompressionInput(String(clampedValue))
+    setParams({ output_compression: clampedValue })
   }, [outputCompressionInput, params.output_compression, setParams])
 
   const commitN = useCallback(() => {
@@ -1244,12 +1254,16 @@ export default function InputBar() {
     const el = textareaRef.current
     if (!el) return
 
-    // 计算图片区域和其他固定元素占用的高度
-    const imagesHeight = imagesRef.current?.offsetHeight ?? 0
-    const fixedOverhead = imagesHeight + 140
+    const isDesktopDock = window.innerWidth >= DESKTOP_DOCK_MIN_WIDTH
 
-    // textarea 最大高度 = 页面 40% 减去固定开销，至少保留 80px
-    const maxH = Math.max(window.innerHeight * 0.4 - fixedOverhead, 80)
+    const imagesHeight = imagesRef.current?.offsetHeight ?? 0
+    const paramsHeight = paramsPanelRef.current?.offsetHeight ?? 0
+
+    // 右侧 Dock：文本框吃掉中间剩余空间，参数和按钮贴到底部。
+    // 底部输入栏：沿用内容自适应，最高不超过页面 40%。
+    const maxH = isDesktopDock
+      ? Math.max((cardRef.current?.clientHeight ?? window.innerHeight - 120) - imagesHeight - paramsHeight - 44, 72)
+      : Math.max(window.innerHeight * 0.4 - imagesHeight - 140, 80)
 
     // 1. 关闭过渡动画，设高度为 0 以获取真实的文本内容高度
     el.style.transition = 'none'
@@ -1262,7 +1276,7 @@ export default function InputBar() {
     const minH = Math.max(42, placeholderH)
 
     const desired = Math.max(scrollH, minH)
-    const targetH = desired > maxH ? maxH : desired
+    const targetH = isDesktopDock ? maxH : desired > maxH ? maxH : desired
 
     // 判断是否只有一行
     setIsSingleLine(desired <= minH)
@@ -1330,7 +1344,9 @@ export default function InputBar() {
       const rangeRect = domRange.getBoundingClientRect()
       const elRect = el.getBoundingClientRect()
       if (rangeRect.width === 0 && rangeRect.height === 0) return
-      setMenuLeft(rangeRect.left - elRect.left)
+      const nextLeft = rangeRect.left - elRect.left
+      const maxLeft = Math.max(0, elRect.width - AT_IMAGE_MENU_WIDTH)
+      setMenuLeft(Math.min(Math.max(nextLeft, 0), maxLeft))
     }
     document.addEventListener('selectionchange', handleSelectionChange)
     return () => document.removeEventListener('selectionchange', handleSelectionChange)
@@ -1365,6 +1381,14 @@ export default function InputBar() {
   useEffect(() => {
     window.addEventListener('resize', adjustTextareaHeight)
     return () => window.removeEventListener('resize', adjustTextareaHeight)
+  }, [adjustTextareaHeight])
+
+  useEffect(() => {
+    const observer = new ResizeObserver(adjustTextareaHeight)
+    if (cardRef.current) observer.observe(cardRef.current)
+    if (imagesRef.current) observer.observe(imagesRef.current)
+    if (paramsPanelRef.current) observer.observe(paramsPanelRef.current)
+    return () => observer.disconnect()
   }, [adjustTextareaHeight])
 
   // 移动端拖动条手势
@@ -1718,7 +1742,7 @@ export default function InputBar() {
 
   const renderImageThumbs = () => {
     return (
-      <div ref={imagesRef}>
+      <div ref={imagesRef} className="lg:max-h-44 lg:overflow-y-auto lg:overscroll-contain lg:pr-1 custom-scrollbar">
         <div className="grid grid-cols-[repeat(auto-fill,52px)] justify-between gap-x-2 gap-y-3 mb-3">
           {inputImages.map((img, idx) => renderImageThumb(img, idx))}
           {renderClearAllButton()}
@@ -1737,7 +1761,7 @@ export default function InputBar() {
   }
 
   const renderParams = (cols: string) => (
-    <div className={`grid ${cols} gap-2 text-xs flex-1`}>
+    <div className={`grid ${cols} gap-2 text-xs min-w-0 flex-1 lg:w-full lg:flex-none`}>
       <label
         className="relative flex flex-col gap-0.5"
         onMouseEnter={sizeHint.show}
@@ -1951,9 +1975,9 @@ export default function InputBar() {
         />
       )}
 
-      <div data-input-bar className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300">
+      <div data-input-bar className="home-input-dock pointer-events-none fixed bottom-4 left-1/2 z-30 w-full max-w-4xl -translate-x-1/2 px-3 transition-all duration-300 sm:bottom-6 sm:px-4 lg:bottom-6 lg:left-auto lg:top-20 lg:flex lg:max-w-none lg:translate-x-0 lg:flex-col lg:px-0">
         {selectedTaskIds.length > 0 && (
-          <div className="flex justify-center mb-3">
+          <div className="mb-3 flex justify-center lg:justify-end">
             <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-gray-200/50 dark:border-white/10 pointer-events-auto">
               <button
                 onClick={clearSelection}
@@ -2020,7 +2044,7 @@ export default function InputBar() {
             </div>
           </div>
         )}
-        <div ref={cardRef} className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10">
+        <div ref={cardRef} className="pointer-events-auto bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
           {/* 移动端拖动条 */}
           <div
             ref={handleRef}
@@ -2057,7 +2081,7 @@ export default function InputBar() {
           )}
 
           {/* 输入框 */}
-          <div className="relative grid">
+          <div className="relative grid lg:min-h-0 lg:flex-1">
             {showAtImageMenu && (
               <div style={{ left: `${menuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
                 <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">选择图片引用</div>
@@ -2130,7 +2154,7 @@ export default function InputBar() {
                 syncMentionTagSelection(el)
               }}
               aria-label={promptPlaceholder}
-              className="col-start-1 row-start-1 min-h-[42px] w-full overflow-hidden ios-rounded-scroll-fix whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 pl-4 pr-10 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30"
+              className="col-start-1 row-start-1 min-h-[42px] w-full overflow-hidden ios-rounded-scroll-fix whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 pl-4 pr-10 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30 lg:h-full"
             />
             {prompt.length === 0 && (
               <div className="prompt-placeholder col-start-1 row-start-1 pointer-events-none pl-4 pr-10 py-3 text-sm leading-relaxed text-gray-400 dark:text-gray-500">
@@ -2152,12 +2176,12 @@ export default function InputBar() {
           </div>
 
           {/* 参数 + 按钮 */}
-          <div className="mt-3">
+          <div ref={paramsPanelRef} className="mt-3 lg:mt-auto">
             {/* 桌面端布局 */}
-            <div className="hidden sm:flex items-end justify-between gap-3">
-              {renderParams('grid-cols-6')}
+            <div className="hidden items-end justify-between gap-3 sm:flex lg:flex-col lg:items-stretch">
+              {renderParams('grid-cols-6 lg:grid-cols-3')}
 
-              <div className="flex gap-2 flex-shrink-0 mb-0.5">
+              <div className="mb-0.5 flex flex-shrink-0 gap-2 lg:mb-0 lg:justify-end">
                 <div
                   className="relative"
                   onMouseEnter={() => setAttachHover(true)}

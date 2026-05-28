@@ -38,8 +38,9 @@ describe('callImageApi', () => {
 
   it('records actual params returned on Images API responses in Codex CLI mode', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      output_format: 'png',
-      quality: 'medium',
+      output_format: 'jpeg',
+      quality: 'auto',
+      output_compression: 70,
       size: '1033x1522',
       data: [{
         b64_json: 'aW1hZ2U=',
@@ -59,13 +60,15 @@ describe('callImageApi', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(result.actualParams).toEqual({
-      output_format: 'png',
-      quality: 'medium',
+      output_format: 'jpeg',
+      quality: 'auto',
+      output_compression: 70,
       size: '1033x1522',
     })
     expect(result.actualParamsList).toEqual([{
-      output_format: 'png',
-      quality: 'medium',
+      output_format: 'jpeg',
+      quality: 'auto',
+      output_compression: 70,
       size: '1033x1522',
     }])
     expect(result.revisedPrompts).toEqual(['移除靴子'])
@@ -73,7 +76,7 @@ describe('callImageApi', () => {
 
   it('does not synthesize actual quality in Codex CLI mode when the API omits it', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      output_format: 'png',
+      output_format: 'jpeg',
       size: '1033x1522',
       data: [{ b64_json: 'aW1hZ2U=' }],
     }), {
@@ -89,12 +92,12 @@ describe('callImageApi', () => {
     })
 
     expect(result.actualParams).toEqual({
-      output_format: 'png',
+      output_format: 'jpeg',
       size: '1033x1522',
     })
     expect(result.actualParams?.quality).toBeUndefined()
     expect(result.actualParamsList).toEqual([{
-      output_format: 'png',
+      output_format: 'jpeg',
       size: '1033x1522',
     }])
   })
@@ -103,7 +106,7 @@ describe('callImageApi', () => {
     const streamBody = [
       'data: {"type":"image_generation.partial_image","partial_image_index":0,"b64_json":"cGFydGlhbA=="}',
       '',
-      'data: {"type":"image_generation.completed","b64_json":"ZmluYWw=","size":"1024x1024","quality":"high","output_format":"png"}',
+      'data: {"type":"image_generation.completed","b64_json":"ZmluYWw=","size":"1024x1024","quality":"auto","output_format":"jpeg","output_compression":70}',
       '',
       'data: [DONE]',
       '',
@@ -138,18 +141,23 @@ describe('callImageApi', () => {
     expect(body).toMatchObject({
       stream: true,
       partial_images: 3,
+      output_format: 'jpeg',
+      output_compression: 70,
+      quality: 'auto',
     })
-    expect(partialImages).toEqual(['data:image/png;base64,cGFydGlhbA=='])
+    expect(partialImages).toEqual(['data:image/jpeg;base64,cGFydGlhbA=='])
     expect(result).toMatchObject({
-      images: ['data:image/png;base64,ZmluYWw='],
+      images: ['data:image/jpeg;base64,ZmluYWw='],
       actualParams: {
-        output_format: 'png',
-        quality: 'high',
+        output_format: 'jpeg',
+        output_compression: 70,
+        quality: 'auto',
         size: '1024x1024',
       },
       actualParamsList: [{
-        output_format: 'png',
-        quality: 'high',
+        output_format: 'jpeg',
+        output_compression: 70,
+        quality: 'auto',
         size: '1024x1024',
       }],
     })
@@ -184,7 +192,7 @@ describe('callImageApi', () => {
     } as any)
 
     expect(result).toMatchObject({
-      images: ['data:image/png;base64,ZmluYWw='],
+      images: ['data:image/jpeg;base64,ZmluYWw='],
       actualParams: {
         output_format: 'jpeg',
         quality: 'medium',
@@ -199,7 +207,7 @@ describe('callImageApi', () => {
       const streamBody = [
         'data: {"type":"image_generation.partial_image","partial_image_index":0,"b64_json":"cGFydGlhbA=="}',
         '',
-        'data: {"type":"image_generation.completed","b64_json":"ZmluYWw=","size":"1024x1024","quality":"high","output_format":"png"}',
+        'data: {"type":"image_generation.completed","b64_json":"ZmluYWw=","size":"1024x1024","quality":"auto","output_format":"jpeg","output_compression":70}',
         '',
         'data: [DONE]',
         '',
@@ -239,13 +247,13 @@ describe('callImageApi', () => {
     }
     expect(result.images).toHaveLength(2)
     expect(result.images).toEqual([
-      'data:image/png;base64,ZmluYWw=',
-      'data:image/png;base64,ZmluYWw=',
+      'data:image/jpeg;base64,ZmluYWw=',
+      'data:image/jpeg;base64,ZmluYWw=',
     ])
     expect(partials.map((partial) => partial.requestIndex).sort()).toEqual([0, 1])
     expect(partials.map((partial) => partial.image)).toEqual([
-      'data:image/png;base64,cGFydGlhbA==',
-      'data:image/png;base64,cGFydGlhbA==',
+      'data:image/jpeg;base64,cGFydGlhbA==',
+      'data:image/jpeg;base64,cGFydGlhbA==',
     ])
   })
 
@@ -289,9 +297,14 @@ describe('callImageApi', () => {
     const body = JSON.parse(String((init as RequestInit).body))
     expect(body.stream).toBe(true)
     expect(body.tools[0].partial_images).toBe(1)
-    expect(partialImages).toEqual(['data:image/png;base64,cGFydGlhbA=='])
+    expect(body.tools[0]).toMatchObject({
+      output_format: 'jpeg',
+      output_compression: 70,
+      quality: 'auto',
+    })
+    expect(partialImages).toEqual(['data:image/jpeg;base64,cGFydGlhbA=='])
     expect(result).toMatchObject({
-      images: ['data:image/png;base64,ZmluYWw='],
+      images: ['data:image/jpeg;base64,ZmluYWw='],
       actualParams: { size: '1024x1024' },
       actualParamsList: [{ size: '1024x1024' }],
       revisedPrompts: ['rewritten'],
@@ -476,7 +489,7 @@ describe('callImageApi', () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     await expect(promise).resolves.toEqual({
-      images: ['data:image/png;base64,aW1hZ2U='],
+      images: ['data:image/jpeg;base64,aW1hZ2U='],
     })
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
@@ -552,7 +565,7 @@ describe('callImageApi', () => {
     await vi.advanceTimersByTimeAsync(6000)
 
     await expect(promise).resolves.toEqual({
-      images: ['data:image/png;base64,aW1hZ2U='],
+      images: ['data:image/jpeg;base64,aW1hZ2U='],
     })
   })
 })

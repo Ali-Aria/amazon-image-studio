@@ -43,11 +43,16 @@ describe('callAgentResponsesApi', () => {
     const body = JSON.parse(String((init as RequestInit).body))
     expect(body.stream).toBe(true)
     expect(body.tools[0].partial_images).toBe(2)
+    expect(body.tools[0]).toMatchObject({
+      output_format: 'jpeg',
+      output_compression: 70,
+      quality: 'auto',
+    })
     expect(textDeltas).toEqual(['Hel', 'lo'])
     expect(result).toMatchObject({
       responseId: 'resp_1',
       text: 'Hello',
-      images: [{ toolCallId: 'ig_1', dataUrl: 'data:image/png;base64,ZmluYWw=' }],
+      images: [{ toolCallId: 'ig_1', dataUrl: 'data:image/jpeg;base64,ZmluYWw=' }],
     })
   })
 

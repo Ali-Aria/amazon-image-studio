@@ -4,6 +4,7 @@ import type {
   AgentConversation,
   AgentMessage,
   AgentRound,
+  AmazonPlannerSession,
   ApiMode,
   ApiProfile,
   AppSettings,
@@ -28,6 +29,9 @@ import {
   putTask,
   deleteTask as dbDeleteTask,
   clearTasks as dbClearTasks,
+  getAllAmazonPlannerSessions,
+  putAmazonPlannerSession,
+  clearAmazonPlannerSessions as dbClearAmazonPlannerSessions,
   getImage,
   getImageThumbnail,
   getStoredFreshImageThumbnail,
@@ -75,6 +79,7 @@ const OPENAI_INTERRUPTED_ERROR = '请求中断'
 const AGENT_STOPPED_MESSAGE = '已停止生成。'
 const AGENT_CONVERSATION_TITLE_MAX_LENGTH = 28
 const ERROR_TOAST_MAX_LENGTH = 80
+const API_MAX_INPUT_IMAGES = 16
 type ToastType = 'info' | 'success' | 'error'
 type AgentInputDraft = {
   prompt: string
@@ -112,11 +117,13 @@ function createNextSubmitTaskCategory(task: TaskRecord): NonNullable<TaskRecord[
   const productTitle = hasExplicitProductTitle ? task.category?.productTitle?.trim() ?? '' : historyCategory.productTitle
   const amazonSlot = task.category?.amazonSlot?.trim() || historyCategory.amazonSlot
   const aPlusType = task.category?.aPlusType ?? historyCategory.aPlusType
+  const styleReferenceImageId = task.category?.styleReferenceImageId?.trim()
   const category: NonNullable<TaskRecord['category']> = { workflow }
 
   if (hasExplicitProductTitle || productTitle) category.productTitle = productTitle
   if (amazonSlot) category.amazonSlot = amazonSlot
   if (workflow === 'amazon-aplus' && aPlusType) category.aPlusType = aPlusType
+  if (styleReferenceImageId) category.styleReferenceImageId = styleReferenceImageId
 
   return category
 }
@@ -593,11 +600,25 @@ export function getPersistedState(state: AppState) {
   }
 }
 
+function normalizePersistedParams(value: unknown): TaskParams {
+  if (!value || typeof value !== 'object') return { ...DEFAULT_PARAMS }
+  const params = { ...DEFAULT_PARAMS, ...(value as Partial<TaskParams>) }
+  const isLegacyPngDefault =
+    params.size === 'auto' &&
+    params.quality === 'medium' &&
+    params.output_format === 'png' &&
+    params.output_compression == null &&
+    params.moderation === 'auto' &&
+    params.n === 1
+  return isLegacyPngDefault ? { ...DEFAULT_PARAMS } : params
+}
+
 export function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {
   if (!persistedState || typeof persistedState !== 'object') return currentState
 
   const persisted = persistedState as Partial<AppState>
   const settings = normalizeSettings(persisted.settings ?? currentState.settings)
+  const params = normalizePersistedParams(persisted.params)
   const agentConversations = normalizeAgentConversations(persisted.agentConversations)
   const activeAgentConversationId =
     typeof persisted.activeAgentConversationId === 'string' && agentConversations.some((conversation) => conversation.id === persisted.activeAgentConversationId)
@@ -620,6 +641,7 @@ export function mergePersistedState(persistedState: unknown, currentState: AppSt
     ...currentState,
     ...persisted,
     settings,
+    params,
     appMode,
     galleryInputDraft: galleryInputDraft && !isEmptyAgentInputDraft(galleryInputDraft) ? galleryInputDraft : null,
     agentConversations,
@@ -1028,7 +1050,7 @@ export const useStore = create<AppState>()(
                   apiKey: incoming.apiKey ?? profile.apiKey,
                   model: incoming.model ?? profile.model,
                   timeout: incoming.timeout ?? profile.timeout,
-                  apiMode: incoming.apiMode === 'images' || incoming.apiMode === 'responses' ? incoming.apiMode : profile.apiMode,
+                  apiMode: incoming.apiMode === 'images' || incoming.apiMode === 'responses' || incoming.apiMode === 'chat' ? incoming.apiMode : profile.apiMode,
                   codexCli: incoming.codexCli ?? profile.codexCli,
                   apiProxy: incoming.apiProxy ?? profile.apiProxy,
                   streamImages: incoming.streamImages ?? profile.streamImages,
@@ -1537,7 +1559,9 @@ function isApiRequestNetworkError(err: unknown): boolean {
 }
 
 function getApiModeApiName(apiMode: ApiMode) {
-  return apiMode === 'responses' ? 'Responses API' : 'Image API'
+  if (apiMode === 'responses') return 'Responses API'
+  if (apiMode === 'chat') return 'Chat Completions API'
+  return 'Image API'
 }
 
 function getApiRequestNetworkErrorHint(
@@ -1929,6 +1953,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     showToast('请输入提示词', 'error')
     return
   }
+  const category = resolvePendingTaskCategory(pendingTaskCategory, trimmedPrompt)
 
   let orderedInputImages = inputImages
   let maskImageId: string | null = null
@@ -1962,6 +1987,20 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     }
   }
 
+  const styleReferenceImageId = category.styleReferenceImageId?.trim()
+  if (styleReferenceImageId && !orderedInputImages.some((img) => img.id === styleReferenceImageId)) {
+    if (orderedInputImages.length + 1 > API_MAX_INPUT_IMAGES) {
+      showToast(`已选择隐藏风格参考板，实际参考图数量不能超过 ${API_MAX_INPUT_IMAGES} 张；请删除一张产品参考图后再提交。`, 'error')
+      return
+    }
+    const dataUrl = await ensureImageCached(styleReferenceImageId)
+    if (!dataUrl) {
+      showToast('已选择的风格参考板不存在，请重新生成并选择风格板。', 'error')
+      return
+    }
+    orderedInputImages = [...orderedInputImages, { id: styleReferenceImageId, dataUrl }]
+  }
+
   // 持久化输入图片到 IndexedDB（此前只在内存缓存中）
   for (const img of orderedInputImages) {
     await storeImage(img.dataUrl)
@@ -1974,7 +2013,6 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   }
 
   const taskId = genId()
-  const category = resolvePendingTaskCategory(pendingTaskCategory, trimmedPrompt)
   const task: TaskRecord = {
     id: taskId,
     prompt: trimmedPrompt,
@@ -3757,7 +3795,9 @@ export async function reuseConfig(task: TaskRecord) {
 
   // 恢复输入图片
   const imgs: InputImage[] = []
+  const hiddenStyleReferenceImageId = task.category?.styleReferenceImageId?.trim()
   for (const imgId of task.inputImageIds) {
+    if (hiddenStyleReferenceImageId && imgId === hiddenStyleReferenceImageId) continue
     const dataUrl = await ensureImageCached(imgId)
     if (dataUrl) {
       imgs.push({ id: imgId, dataUrl })
@@ -3926,6 +3966,7 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
 
   if (options.clearTasks) {
     await dbClearTasks()
+    await dbClearAmazonPlannerSessions()
     await clearImages()
     imageCache.clear()
     thumbnailCache.clear()
@@ -4031,6 +4072,13 @@ function formatExportFileTime(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
 }
 
+function collectAmazonPlannerSessionImageIds(session: AmazonPlannerSession): string[] {
+  return [
+    ...(session.referenceImageIds || []),
+    ...(session.styleImages || []).map((image) => image.imageId),
+  ].filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+}
+
 /** 导出选项 */
 export interface ExportOptions {
   exportConfig?: boolean
@@ -4041,6 +4089,7 @@ export interface ExportOptions {
 export async function exportData(options: ExportOptions = { exportConfig: true, exportTasks: true }) {
   try {
     const tasks = options.exportTasks ? await getAllTasks() : []
+    const amazonPlannerSessions = options.exportTasks ? await getAllAmazonPlannerSessions() : []
     const images = options.exportTasks ? await getAllImages() : []
     const { settings, agentConversations } = useStore.getState()
     const exportedAt = Date.now()
@@ -4057,6 +4106,14 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
           const prev = imageCreatedAtFallback.get(id)
           if (prev == null || task.createdAt < prev) {
             imageCreatedAtFallback.set(id, task.createdAt)
+          }
+        }
+      }
+      for (const session of amazonPlannerSessions) {
+        for (const id of collectAmazonPlannerSessionImageIds(session)) {
+          const prev = imageCreatedAtFallback.get(id)
+          if (prev == null || session.createdAt < prev) {
+            imageCreatedAtFallback.set(id, session.createdAt)
           }
         }
       }
@@ -4104,7 +4161,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
     }
 
     const manifest: ExportData = {
-      version: 3,
+      version: 4,
       exportedAt: new Date(exportedAt).toISOString(),
     }
 
@@ -4112,6 +4169,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
     if (options.exportTasks) {
       manifest.tasks = tasks
       manifest.agentConversations = agentConversations
+      manifest.amazonPlannerSessions = amazonPlannerSessions
       manifest.imageFiles = imageFiles
       manifest.thumbnailFiles = thumbnailFiles
     }
@@ -4195,6 +4253,9 @@ export async function importData(file: File, options: ImportOptions = { importCo
       for (const task of data.tasks) {
         await putTask(task)
       }
+      for (const session of data.amazonPlannerSessions ?? []) {
+        await putAmazonPlannerSession(session)
+      }
 
       const tasks = await getAllTasks()
       useStore.getState().setTasks(tasks)
@@ -4221,7 +4282,10 @@ export async function importData(file: File, options: ImportOptions = { importCo
 
     let msg = '数据已成功导入'
     if (options.importTasks && data.tasks) {
-      msg = `已导入 ${data.tasks.length} 条记录`
+      const plannerSessionCount = data.amazonPlannerSessions?.length ?? 0
+      msg = plannerSessionCount
+        ? `已导入 ${data.tasks.length} 条记录和 ${plannerSessionCount} 条策划历史`
+        : `已导入 ${data.tasks.length} 条记录`
     } else if (options.importConfig && data.settings) {
       msg = '配置已成功导入'
     }

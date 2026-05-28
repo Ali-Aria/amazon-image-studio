@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_CHAT_MODEL,
   createDefaultFalProfile,
   createDefaultOpenAIProfile,
   DEFAULT_IMAGES_MODEL,
@@ -40,6 +41,22 @@ describe('URL settings params', () => {
       apiKey: 'test-key',
       model: 'custom-image-model',
       apiMode: 'images',
+    })
+  })
+
+  it('creates Chat Completions profile from URL params', () => {
+    const current = normalizeSettings(DEFAULT_SETTINGS)
+    const next = normalizeSettings({
+      ...current,
+      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiUrl=https://api.deepseek.com&apiKey=deepseek-key&apiMode=chat')),
+    })
+
+    expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
+      provider: 'openai',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'deepseek-key',
+      model: DEFAULT_CHAT_MODEL,
+      apiMode: 'chat',
     })
   })
 

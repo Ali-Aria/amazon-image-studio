@@ -5,6 +5,7 @@ import { isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig } from 
 import { useStore, exportData, importData, clearData, type SettingsTab } from '../store'
 import {
   createDefaultOpenAIProfile,
+  DEFAULT_CHAT_MODEL,
   DEFAULT_FAL_BASE_URL,
   DEFAULT_FAL_MODEL,
   DEFAULT_IMAGES_MODEL,
@@ -370,14 +371,16 @@ export default function SettingsModal() {
   ]
 
   const getDefaultModelForMode = (apiMode: AppSettings['apiMode']) =>
-    apiMode === 'responses' ? DEFAULT_RESPONSES_MODEL : DEFAULT_IMAGES_MODEL
+    apiMode === 'responses' ? DEFAULT_RESPONSES_MODEL : apiMode === 'chat' ? DEFAULT_CHAT_MODEL : DEFAULT_IMAGES_MODEL
+  const getApiModeLabel = (apiMode: AppSettings['apiMode']) =>
+    apiMode === 'responses' ? 'Responses API' : apiMode === 'chat' ? 'Chat Completions' : 'Images API'
   const amazonPlannerProfiles = draft.profiles.filter(isAmazonPlannerProfile)
   const amazonPlannerProfileOptions = amazonPlannerProfiles.length
     ? amazonPlannerProfiles.map((profile) => ({
-        label: `${profile.name} · ${profile.model || getDefaultModelForMode('responses')}`,
+        label: `${profile.name} · ${profile.model || getDefaultModelForMode(profile.apiMode)} · ${getApiModeLabel(profile.apiMode)}`,
         value: profile.id,
       }))
-    : [{ label: '暂无 Responses API 配置', value: '' }]
+    : [{ label: '暂无 Chat/Responses 策划配置', value: '' }]
 
   const wasSettingsOpenRef = useRef(false)
 
@@ -1414,7 +1417,7 @@ export default function SettingsModal() {
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold text-blue-900 dark:text-blue-100">AI 策划配置</span>
                   <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-200">
-                    Responses
+                    Chat
                   </span>
                 </div>
                 <Select
@@ -1425,7 +1428,7 @@ export default function SettingsModal() {
                   className="w-full rounded-xl border border-blue-200/70 bg-white/80 px-3 py-2.5 text-sm text-blue-900 outline-none transition focus:border-blue-300 dark:border-blue-400/20 dark:bg-gray-950/40 dark:text-blue-100 dark:focus:border-blue-500/50"
                 />
                 <div data-selectable-text className="mt-2 text-xs leading-relaxed text-blue-800 dark:text-blue-200">
-                  只用于首页 Amazon 面板的 AI 策划；生图仍使用上方当前配置。建议保留一个 Images API + gpt-image-2 配置用于生图，再建一个 Responses API 文本模型配置用于策划。
+                  只用于首页 Amazon 面板的 AI 策划；生图仍使用上方当前配置。建议保留一个 Images API + gpt-image-2 配置用于生图，再建一个 Chat Completions 文本模型配置用于策划。
                 </div>
               </div>
 
@@ -1543,7 +1546,7 @@ export default function SettingsModal() {
                 </div>
               </div>
 
-              {/* 6. API 接口（Images/Responses） */}
+              {/* 6. API 接口（Images/Responses/Chat） */}
               {activeProfile.provider === 'openai' && (
                 <div className="block">
                   <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">API 接口</span>
@@ -1552,7 +1555,7 @@ export default function SettingsModal() {
                     onChange={(value) => {
                       const apiMode = value as AppSettings['apiMode']
                       const nextModel =
-                        activeProfile.model === DEFAULT_IMAGES_MODEL || activeProfile.model === DEFAULT_RESPONSES_MODEL
+                        activeProfile.model === DEFAULT_IMAGES_MODEL || activeProfile.model === DEFAULT_RESPONSES_MODEL || activeProfile.model === DEFAULT_CHAT_MODEL
                           ? getDefaultModelForMode(apiMode)
                           : activeProfile.model
                       updateActiveProfile({ apiMode, model: nextModel }, true)
@@ -1560,11 +1563,12 @@ export default function SettingsModal() {
                     options={[
                       { label: 'Images API (/v1/images)', value: 'images' },
                       { label: 'Responses API (/v1/responses)', value: 'responses' },
+                      { label: 'Chat Completions (/chat/completions)', value: 'chat' },
                     ]}
                     className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                   />
                   <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
-                    支持通过查询参数覆盖：<code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">apiMode=images</code> 或 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">apiMode=responses</code>。
+                    支持通过查询参数覆盖：<code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">apiMode=images</code>、<code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">apiMode=responses</code> 或 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">apiMode=chat</code>。
                   </div>
                 </div>
               )}
@@ -1589,6 +1593,8 @@ export default function SettingsModal() {
                     <>当前使用 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">{activeCustomProvider.name}</code>。</>
                   ) : (activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode) === 'responses' ? (
                     <>Responses API 需要使用支持 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">image_generation</code> 工具的文本模型，例如 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">{DEFAULT_RESPONSES_MODEL}</code>。</>
+                  ) : (activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode) === 'chat' ? (
+                    <>Chat Completions 用于 AI 策划文本模型，例如 DeepSeek 的 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">{DEFAULT_CHAT_MODEL}</code>；生图请使用 Images API 配置。</>
                   ) : (
                     <>Images API 需要使用 GPT Image 模型，例如 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">{DEFAULT_IMAGES_MODEL}</code>。</>
                   )}

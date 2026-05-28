@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_CHAT_MODEL,
   DEFAULT_FAL_BASE_URL,
   DEFAULT_FAL_MODEL,
   DEFAULT_IMAGES_MODEL,
@@ -583,7 +584,7 @@ describe('custom providers', () => {
 })
 
 describe('amazon planner profile', () => {
-  it('auto-selects the first OpenAI Responses profile when none is configured', () => {
+  it('auto-selects the first OpenAI Chat/Responses profile when none is configured', () => {
     const settings = normalizeSettings({
       profiles: [
         createDefaultOpenAIProfile({
@@ -595,8 +596,8 @@ describe('amazon planner profile', () => {
         createDefaultOpenAIProfile({
           id: 'planner-profile',
           name: 'Planner Profile',
-          apiMode: 'responses',
-          model: DEFAULT_RESPONSES_MODEL,
+          apiMode: 'chat',
+          model: DEFAULT_CHAT_MODEL,
         }),
       ],
       activeProfileId: 'image-profile',
@@ -607,7 +608,7 @@ describe('amazon planner profile', () => {
     expect(getAmazonPlannerProfile(settings)?.id).toBe('planner-profile')
   })
 
-  it('falls back when the configured planner profile is removed or no longer uses Responses API', () => {
+  it('falls back when the configured planner profile is removed or no longer uses Chat/Responses API', () => {
     const settings = normalizeSettings({
       amazonPlannerProfileId: 'stale-planner',
       profiles: [
@@ -618,8 +619,8 @@ describe('amazon planner profile', () => {
         }),
         createDefaultOpenAIProfile({
           id: 'next-planner',
-          apiMode: 'responses',
-          model: DEFAULT_RESPONSES_MODEL,
+          apiMode: 'chat',
+          model: DEFAULT_CHAT_MODEL,
         }),
       ],
     })
@@ -640,8 +641,8 @@ describe('amazon planner profile', () => {
         createDefaultOpenAIProfile({
           id: 'planner-profile',
           apiKey: 'planner-key',
-          apiMode: 'responses',
-          model: 'gpt-planner',
+          apiMode: 'chat',
+          model: 'deepseek-v4-flash',
         }),
       ],
       activeProfileId: 'image-profile',
@@ -652,7 +653,7 @@ describe('amazon planner profile', () => {
     expect(getAmazonPlannerProfile(settings)).toMatchObject({
       id: 'planner-profile',
       apiKey: 'planner-key',
-      model: 'gpt-planner',
+      model: 'deepseek-v4-flash',
     })
   })
 })

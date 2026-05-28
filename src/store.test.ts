@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { strToU8, zipSync } from 'fflate'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { DEFAULT_PARAMS } from './types'
 import { createDefaultFalProfile, createDefaultOpenAIProfile, DEFAULT_RESPONSES_MODEL, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
-import type { AgentConversation, ExportData, StoredImage, StoredImageThumbnail, TaskRecord } from './types'
+import type { AgentConversation, AmazonPlannerSession, ExportData, StoredImage, StoredImageThumbnail, TaskRecord } from './types'
 import { getSelectedImageMentionLabel } from './lib/promptImageMentions'
 vi.mock('./lib/db', () => {
   const tasks = new Map<string, TaskRecord>()
+  const amazonPlannerSessions = new Map<string, AmazonPlannerSession>()
   const images = new Map<string, StoredImage>()
   const thumbnails = new Map<string, StoredImageThumbnail>()
   let imageSeq = 0
@@ -22,6 +23,17 @@ vi.mock('./lib/db', () => {
     },
     clearTasks: async () => {
       tasks.clear()
+    },
+    getAllAmazonPlannerSessions: async () => [...amazonPlannerSessions.values()],
+    putAmazonPlannerSession: async (session: AmazonPlannerSession) => {
+      amazonPlannerSessions.set(session.id, session)
+      return session.id
+    },
+    deleteAmazonPlannerSession: async (id: string) => {
+      amazonPlannerSessions.delete(id)
+    },
+    clearAmazonPlannerSessions: async () => {
+      amazonPlannerSessions.clear()
     },
     getImage: async (id: string) => images.get(id),
     getImageThumbnail: async (id: string) => thumbnails.get(id),
@@ -80,9 +92,9 @@ vi.mock('./lib/agentApi', () => ({
     }
   }),
 }))
-import { clearImages, putImage } from './lib/db'
+import { clearAmazonPlannerSessions, clearImages, getAllAmazonPlannerSessions, putAmazonPlannerSession, putImage } from './lib/db'
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
-import { cleanStaleAgentInputDrafts, editOutputs, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, markInterruptedOpenAIRunningTasks, mergePersistedState, regenerateAgentAssistantMessage, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
+import { cleanStaleAgentInputDrafts, clearData, editOutputs, exportData, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, markInterruptedOpenAIRunningTasks, mergePersistedState, regenerateAgentAssistantMessage, removeTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -124,6 +136,61 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
     createdAt: 1,
     finishedAt: 2,
     elapsed: 1,
+    ...overrides,
+  }
+}
+
+function amazonPlannerSession(overrides: Partial<AmazonPlannerSession> = {}): AmazonPlannerSession {
+  return {
+    id: 'planner-session-a',
+    title: 'Tumbler Listing',
+    mode: 'listing',
+    aPlusType: 'standard-large',
+    resolution: '2k',
+    listingText: 'Title: Tumbler',
+    referenceImageIds: [],
+    draft: {
+      kind: 'main',
+      productTitle: 'Tumbler',
+      category: 'Kitchen',
+      brand: '',
+      color: '',
+      material: '',
+      audience: '',
+      sellingPoints: '',
+      packageIncludes: '',
+      scene: '',
+      forbidden: '',
+    },
+    seriesStyleGuides: {
+      listing: 'Warm studio style.',
+      aplus: '',
+    },
+    styleCandidates: [
+      {
+        label: '信息图',
+        description: '字体、色板和标注样式',
+        prompt: 'Create a style board.',
+        negativePrompt: 'Chinese characters',
+      },
+    ],
+    styleImages: [],
+    selectedStyleIndex: null,
+    imagePlans: [
+      {
+        slot: 'MAIN',
+        label: '主图',
+        kind: 'main',
+        planMarkdown: '主图策划',
+        prompt: 'Create main image.',
+        negativePrompt: 'text',
+      },
+    ],
+    aPlusPlans: [],
+    selectedPlanIndex: 0,
+    selectedAPlusPlanIndex: null,
+    createdAt: 1,
+    updatedAt: 2,
     ...overrides,
   }
 }
@@ -243,6 +310,64 @@ describe('mask draft lifecycle in store actions', () => {
       amazonSlot: 'A+S01',
       aPlusType: 'standard',
     })
+  })
+
+  it('appends a hidden style reference image when the submitted Amazon prompt matches', async () => {
+    const styleImage = { id: 'style-reference-image', dataUrl: 'data:image/png;base64,style' }
+    await putImage(imageA)
+    await putImage(styleImage)
+    useStore.setState({
+      prompt: 'listing prompt',
+      inputImages: [imageA],
+      pendingTaskCategory: {
+        mode: 'prompt-match',
+        prompt: 'listing prompt',
+        category: {
+          productTitle: 'Large Folding Umbrella',
+          workflow: 'amazon-listing',
+          amazonSlot: 'MAIN',
+          styleReferenceImageId: styleImage.id,
+        },
+      },
+    })
+
+    await submitTask()
+
+    const task = useStore.getState().tasks[0]
+    expect(task?.inputImageIds).toEqual([imageA.id, styleImage.id])
+    expect(task?.category).toMatchObject({
+      workflow: 'amazon-listing',
+      amazonSlot: 'MAIN',
+      styleReferenceImageId: styleImage.id,
+    })
+  })
+
+  it('blocks submit when visible references plus hidden style reference exceed the API image limit', async () => {
+    const styleImage = { id: 'style-reference-image', dataUrl: 'data:image/png;base64,style' }
+    await putImage(styleImage)
+    const inputImages = Array.from({ length: 16 }, (_, index) => ({
+      id: `product-reference-${index + 1}`,
+      dataUrl: `data:image/png;base64,product-${index + 1}`,
+    }))
+    useStore.setState({
+      prompt: 'listing prompt',
+      inputImages,
+      pendingTaskCategory: {
+        mode: 'prompt-match',
+        prompt: 'listing prompt',
+        category: {
+          productTitle: 'Large Folding Umbrella',
+          workflow: 'amazon-listing',
+          amazonSlot: 'MAIN',
+          styleReferenceImageId: styleImage.id,
+        },
+      },
+    })
+
+    await submitTask()
+
+    expect(useStore.getState().tasks).toHaveLength(0)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(expect.stringContaining('实际参考图数量不能超过 16 张'), 'error')
   })
 
   it('does not apply stale pending category after the prompt changes', async () => {
@@ -516,7 +641,8 @@ describe('agent conversation creation', () => {
 })
 
 describe('data import', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await clearAmazonPlannerSessions()
     useStore.setState({
       tasks: [],
       agentConversations: [],
@@ -604,6 +730,93 @@ describe('data import', () => {
     expect(imported).toBe(true)
     expect(state.agentConversations.map((conversation) => conversation.id)).toEqual(['local-conversation', 'imported-conversation'])
     expect(state.activeAgentConversationId).toBe('local-conversation')
+  })
+
+  it('imports Amazon planner session history with task data', async () => {
+    const session = amazonPlannerSession({
+      id: 'imported-planner-session',
+      referenceImageIds: ['image-a'],
+      styleImages: [{ candidateIndex: 0, imageId: 'style-image-a' }],
+      selectedStyleIndex: 0,
+    })
+
+    const imported = await importData(importFile({
+      version: 4,
+      exportedAt: new Date(0).toISOString(),
+      tasks: [],
+      amazonPlannerSessions: [session],
+      imageFiles: {},
+    }), { importConfig: false, importTasks: true })
+
+    expect(imported).toBe(true)
+    expect(await getAllAmazonPlannerSessions()).toEqual([session])
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('已导入 0 条记录和 1 条策划历史', 'success')
+  })
+})
+
+describe('data export and clearing', () => {
+  beforeEach(async () => {
+    await clearAmazonPlannerSessions()
+    await clearImages()
+    useStore.setState({
+      tasks: [],
+      agentConversations: [],
+      activeAgentConversationId: null,
+      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key' },
+      showToast: vi.fn(),
+    })
+  })
+
+  it('exports Amazon planner session history in the backup manifest', async () => {
+    const session = amazonPlannerSession({
+      id: 'exported-planner-session',
+      referenceImageIds: ['image-a'],
+      styleImages: [{ candidateIndex: 0, imageId: 'style-image-a' }],
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    })
+    await putAmazonPlannerSession(session)
+    await putImage({ id: 'image-a', dataUrl: 'data:image/png;base64,YQ==', createdAt: 1_700_000_000_000, source: 'upload' })
+    await putImage({ id: 'style-image-a', dataUrl: 'data:image/png;base64,Yg==', createdAt: 1_700_000_000_000, source: 'generated' })
+
+    const clickedDownloads: Array<{ download?: string; href?: string }> = []
+    const anchor = {
+      href: '',
+      download: '',
+      click: vi.fn(() => {
+        clickedDownloads.push({ download: anchor.download, href: anchor.href })
+      }),
+    }
+    vi.stubGlobal('document', {
+      createElement: vi.fn(() => anchor),
+    })
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:backup')
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    await exportData({ exportConfig: false, exportTasks: true })
+
+    expect(useStore.getState().showToast).not.toHaveBeenCalledWith(expect.stringContaining('导出失败'), 'error')
+    const blob = createObjectUrl.mock.calls[0]?.[0] as Blob
+    const buffer = await blob.arrayBuffer()
+    const unzipped = unzipSync(new Uint8Array(buffer))
+    const manifest = JSON.parse(strFromU8(unzipped['manifest.json'])) as ExportData
+    expect(manifest.version).toBe(4)
+    expect(manifest.amazonPlannerSessions).toEqual([session])
+    expect(manifest.imageFiles).toHaveProperty('image-a')
+    expect(manifest.imageFiles).toHaveProperty('style-image-a')
+    expect(clickedDownloads[0]?.download).toContain('amazon-image-studio-backup')
+
+    createObjectUrl.mockRestore()
+    revokeObjectUrl.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('clears Amazon planner sessions when clearing task data', async () => {
+    await putAmazonPlannerSession(amazonPlannerSession())
+
+    await clearData({ clearConfig: false, clearTasks: true })
+
+    expect(await getAllAmazonPlannerSessions()).toEqual([])
   })
 })
 

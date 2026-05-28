@@ -437,6 +437,10 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
     return callCustomHttpImageApi(opts, profile, customProvider)
   }
 
+  if (profile.apiMode === 'chat') {
+    throw new Error('Chat Completions API 只能用于 AI 策划；生图请切换到 Images API 配置。')
+  }
+
   return profile.apiMode === 'responses'
     ? callResponsesImageApi(opts, profile)
     : callImagesApi(opts, profile)
