@@ -37,6 +37,35 @@ npm --version
 
 ## 首次安装
 
+首次安装只需要做一次。下面两种方式二选一即可；如果已经让 AI 工具完成安装并启动，就不要再重复执行手动安装。
+
+### 方式一：Codex / Claude Code / OpenClaw 安装并启动
+
+如果你要把项目发给别人使用，最简单的方式是直接发 GitHub 仓库链接：
+
+```text
+https://github.com/Ali-Aria/amazon-image-studio
+```
+
+对方可以在 Codex、Claude Code、Claw Code 或其它 AI 编程工具里粘贴下面这段话：
+
+```text
+请把这个 GitHub 项目安装到我的本地电脑并启动：
+https://github.com/Ali-Aria/amazon-image-studio
+
+要求：
+1. 先确认本机已经安装 Node.js 20 LTS 或更新版本和 npm。
+2. 如果本地还没有项目，就 clone 仓库；如果已经下载 ZIP 或源码文件夹，直接进入现有项目目录，不要重复下载。
+3. 在项目目录运行 npm ci 安装依赖。
+4. 如果我是 Windows 用户，优先检查仓库里的 start-amazon-image-studio.bat，能用的话帮我用它启动项目；停止时可以用 stop-amazon-image-studio.bat。
+5. 如果不使用 bat 脚本，就运行 npm run dev 启动项目。
+6. 告诉我浏览器应该打开哪个本地地址。
+```
+
+如果 AI 工具不会自动执行命令，也可以让它按下面“方式二：手动安装（通用）”和“启动项目”里的命令一步一步带你操作。Windows 用户可以优先双击 `start-amazon-image-studio.bat` 启动，停止时双击 `stop-amazon-image-studio.bat`。项目启动后，每个使用者都需要在页面右上角设置里填写自己的 API Key；不要把你的 API Key 发给别人。
+
+### 方式二：手动安装（通用）
+
 先把仓库下载到本地：
 
 ```powershell
@@ -52,7 +81,7 @@ cd amazon-image-studio
 npm ci
 ```
 
-依赖只需要安装一次。以后日常使用直接启动即可。
+依赖只需要安装一次。以后日常使用直接看下面的“启动项目”。
 
 ## 启动项目
 

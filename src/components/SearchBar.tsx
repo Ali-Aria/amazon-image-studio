@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
-import { useStore } from '../store'
-import { ALL_PRODUCT_FILTER, UNCATEGORIZED_PRODUCT_FILTER, getTaskProductFilterOptions } from '../lib/taskHistory'
+import { useCallback, useMemo } from 'react'
+import { removeMultipleTasks, useStore } from '../store'
+import { ALL_PRODUCT_FILTER, UNCATEGORIZED_PRODUCT_FILTER, getTaskProductFilterOptions, matchesTaskHistoryFilters } from '../lib/taskHistory'
 import type { HistoryAspectFilter, HistoryWorkflowFilter } from '../types'
 import Select from './Select'
+import { TrashIcon } from './icons'
 
 export default function SearchBar() {
   const tasks = useStore((s) => s.tasks)
@@ -18,6 +19,7 @@ export default function SearchBar() {
   const setFilterWorkflow = useStore((s) => s.setFilterWorkflow)
   const filterAspect = useStore((s) => s.filterAspect)
   const setFilterAspect = useStore((s) => s.setFilterAspect)
+  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
 
   const productOptions = useMemo(() => {
     const options = getTaskProductFilterOptions(tasks)
@@ -37,6 +39,47 @@ export default function SearchBar() {
       { label: '未识别商品', value: UNCATEGORIZED_PRODUCT_FILTER },
     ]
   }, [filterProductTitle, tasks])
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => matchesTaskHistoryFilters(task, {
+      searchQuery,
+      filterStatus,
+      filterFavorite,
+      filterProductTitle,
+      filterWorkflow,
+      filterAspect,
+    }))
+  }, [tasks, searchQuery, filterStatus, filterFavorite, filterProductTitle, filterWorkflow, filterAspect])
+
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() ||
+    filterFavorite ||
+    filterStatus !== 'all' ||
+    filterProductTitle ||
+    filterWorkflow !== 'all' ||
+    filterAspect !== 'all',
+  )
+  const productFilterActive = Boolean(filterProductTitle)
+  const clearLabel = productFilterActive
+    ? filterProductTitle === UNCATEGORIZED_PRODUCT_FILTER ? '清空未识别' : '清空该商品'
+    : hasActiveFilters ? '清空筛选结果' : '清空历史'
+
+  const handleClearHistory = useCallback(() => {
+    if (!filteredTasks.length) return
+    const taskIds = filteredTasks.map((task) => task.id)
+    const scopeText = productFilterActive
+      ? filterProductTitle === UNCATEGORIZED_PRODUCT_FILTER ? '未识别商品' : `商品「${filterProductTitle}」`
+      : hasActiveFilters ? '当前筛选结果' : '全部历史记录'
+
+    setConfirmDialog({
+      title: clearLabel,
+      message: `确定要删除${scopeText}下的 ${taskIds.length} 条记录吗？关联图片资源会在没有其他记录引用时一起清理。`,
+      confirmText: '确认清空',
+      action: () => {
+        void removeMultipleTasks(taskIds)
+      },
+    })
+  }, [clearLabel, filterProductTitle, filteredTasks, hasActiveFilters, productFilterActive, setConfirmDialog])
 
   return (
     <div data-no-drag-select className="mt-6 mb-4 flex flex-col gap-2 lg:flex-row lg:items-center">
@@ -125,6 +168,20 @@ export default function SearchBar() {
           className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
         />
       </div>
+      <button
+        type="button"
+        onClick={handleClearHistory}
+        disabled={!filteredTasks.length}
+        title={filteredTasks.length ? `删除当前范围内的 ${filteredTasks.length} 条历史记录` : '没有可清空的记录'}
+        className={`inline-flex h-[42px] shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition ${
+          filteredTasks.length
+            ? 'border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-400/20 dark:bg-gray-900 dark:text-red-300 dark:hover:bg-red-400/10'
+            : 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-300 dark:border-white/[0.04] dark:bg-white/[0.04] dark:text-gray-600'
+        }`}
+      >
+        <TrashIcon className="h-4 w-4" />
+        <span className="whitespace-nowrap">{clearLabel}</span>
+      </button>
     </div>
   )
 }
