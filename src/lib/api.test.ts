@@ -82,7 +82,7 @@ describe('callImageApi', () => {
       messages: [{ role: 'user', content: 'prompt' }],
       modalities: ['image', 'text'],
       stream: false,
-      image_config: { aspect_ratio: '1:1' },
+      image_config: { aspect_ratio: '1:1', image_size: '1K' },
     })
     expect(result.images).toEqual(['data:image/png;base64,aW1hZ2U='])
   })
@@ -127,7 +127,83 @@ describe('callImageApi', () => {
       { type: 'text', text: 'edit prompt' },
       { type: 'image_url', image_url: { url: 'data:image/png;base64,aW5wdXQ=' } },
     ])
-    expect(body.image_config).toEqual({ aspect_ratio: '2:3' })
+    expect(body.image_config).toEqual({ aspect_ratio: '2:3', image_size: '1K' })
+  })
+
+  it('sends OpenRouter image size tiers for 2K requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      choices: [{
+        message: {
+          images: [{
+            image_url: { url: 'data:image/png;base64,aW1hZ2U=' },
+          }],
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        baseUrl: 'https://openrouter.ai',
+        model: 'google/gemini-2.5-flash-image',
+        apiMode: 'chat',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          baseUrl: 'https://openrouter.ai',
+          model: 'google/gemini-2.5-flash-image',
+          apiMode: 'chat',
+        })),
+      },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, size: '2048x2048' },
+      inputImageDataUrls: [],
+    })
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body.image_config).toEqual({ aspect_ratio: '1:1', image_size: '2K' })
+  })
+
+  it('maps A+ banner sizes to the nearest OpenRouter aspect ratio and size tier', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      choices: [{
+        message: {
+          images: [{
+            image_url: { url: 'data:image/png;base64,YXBsdXM=' },
+          }],
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        baseUrl: 'https://openrouter.ai',
+        model: 'google/gemini-2.5-flash-image',
+        apiMode: 'chat',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          baseUrl: 'https://openrouter.ai',
+          model: 'google/gemini-2.5-flash-image',
+          apiMode: 'chat',
+        })),
+      },
+      prompt: 'A+ banner prompt',
+      params: { ...DEFAULT_PARAMS, size: '3536x1184' },
+      inputImageDataUrls: [],
+    })
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body.image_config).toEqual({ aspect_ratio: '21:9', image_size: '2K' })
   })
 
   it('retries OpenRouter image-only models without text modality', async () => {
@@ -524,6 +600,33 @@ describe('callImageApi', () => {
     expect(headers).not.toHaveProperty('Pragma')
     expect(headers).not.toHaveProperty('Cache-Control')
     expect((init as RequestInit).cache).toBe('no-store')
+  })
+
+  it('aborts Images API requests with the caller signal', async () => {
+    const controller = new AbortController()
+    let requestSignal: AbortSignal | undefined
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      requestSignal = (init as RequestInit).signal as AbortSignal
+      return new Promise<Response>((_resolve, reject) => {
+        requestSignal?.addEventListener('abort', () => {
+          reject(requestSignal?.reason ?? new DOMException('Aborted', 'AbortError'))
+        }, { once: true })
+      })
+    })
+
+    const promise = callImageApi({
+      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key' },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+      signal: controller.signal,
+    })
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    controller.abort(new DOMException('用户停止', 'AbortError'))
+
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+    expect(requestSignal?.aborted).toBe(true)
   })
 
   it('ignores stored API proxy settings when the current deployment has no proxy', async () => {

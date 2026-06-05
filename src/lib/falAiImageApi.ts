@@ -212,13 +212,14 @@ export async function callFalAiImageApi(opts: CallApiOptions, profile: ApiProfil
     const result = await fal.subscribe(endpoint, {
       input,
       logs: true,
+      abortSignal: opts.signal,
       onEnqueue: (requestId) => {
         opts.onFalRequestEnqueued?.({ requestId, endpoint })
       },
     })
     const payload = result.data as FalApiResponse
     opts.onFalRequestEnqueued?.({ requestId: result.requestId, endpoint })
-    return parseFalResult(payload, opts.params, getFalCustomBaseUrlLabel(profile))
+    return parseFalResult(payload, opts.params, getFalCustomBaseUrlLabel(profile), opts.signal)
   } catch (err) {
     const falMessage = getFalErrorMessage(err)
     if (falMessage) throw new Error(falMessage)

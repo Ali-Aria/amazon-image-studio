@@ -16,6 +16,7 @@ export interface CallApiOptions {
   /** 输入图片的 data URL 列表 */
   inputImageDataUrls: string[]
   maskDataUrl?: string
+  signal?: AbortSignal
   onFalRequestEnqueued?: (request: { requestId: string; endpoint: string }) => void
   onCustomTaskEnqueued?: (task: { taskId: string }) => void
   onPartialImage?: (partial: { image: string; partialImageIndex?: number; requestIndex?: number }) => void
@@ -44,6 +45,44 @@ export function isDataUrl(value: unknown): value is string {
 
 export function normalizeBase64Image(value: string, fallbackMime: string): string {
   return value.startsWith('data:') ? value : `data:${fallbackMime};base64,${value}`
+}
+
+export function createLinkedAbortController(timeoutSeconds: number, signal?: AbortSignal): {
+  controller: AbortController
+  clearTimeout: () => void
+  cleanup: () => void
+} {
+  const controller = new AbortController()
+  let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    controller.abort()
+  }, timeoutSeconds * 1000)
+
+  const abortFromSignal = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(signal?.reason ?? new DOMException('请求已停止', 'AbortError'))
+    }
+  }
+
+  if (signal?.aborted) {
+    abortFromSignal()
+  } else {
+    signal?.addEventListener('abort', abortFromSignal, { once: true })
+  }
+
+  const clearRequestTimeout = () => {
+    if (!timeoutId) return
+    clearTimeout(timeoutId)
+    timeoutId = null
+  }
+
+  return {
+    controller,
+    clearTimeout: clearRequestTimeout,
+    cleanup: () => {
+      clearRequestTimeout()
+      signal?.removeEventListener('abort', abortFromSignal)
+    },
+  }
 }
 
 function formatMiB(bytes: number): string {

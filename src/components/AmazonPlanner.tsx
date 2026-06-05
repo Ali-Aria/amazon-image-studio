@@ -59,7 +59,7 @@ type PlannerActionProgress = 'filled' | 'submitted'
 type PlannerActionProgressMap = Record<string, PlannerActionProgress>
 type StyleImageState = {
   candidateIndex: number
-  status: 'running' | 'done' | 'error'
+  status: 'running' | 'done' | 'error' | 'stopped'
   imageId?: string
   dataUrl?: string
   error?: string
@@ -190,6 +190,13 @@ function isAbortError(err: unknown): boolean {
     (err instanceof Error && err.name === 'AbortError')
 }
 
+function getStyleImagePlaceholder(status: StyleImageState['status'] | undefined) {
+  if (status === 'running') return '生成中...'
+  if (status === 'error') return '生成失败'
+  if (status === 'stopped') return '已停止'
+  return '待生成'
+}
+
 function getStylePreviewPosition(clientX: number, clientY: number) {
   if (typeof window === 'undefined') {
     return { left: clientX + STYLE_PREVIEW_OFFSET, top: clientY + STYLE_PREVIEW_OFFSET }
@@ -299,6 +306,7 @@ export default function AmazonPlanner() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const plannerAbortControllerRef = useRef<AbortController | null>(null)
+  const styleAbortControllerRef = useRef<AbortController | null>(null)
   const [draft, setDraft] = useState<AmazonPromptDraft>(DEFAULT_AMAZON_PROMPT_DRAFT)
   const [resolution, setResolution] = useState<'2k' | '4k'>('2k')
   const [plannerMode, setPlannerMode] = useState<AmazonPlannerMode>('listing')
@@ -487,6 +495,8 @@ export default function AmazonPlanner() {
     return () => {
       plannerAbortControllerRef.current?.abort()
       plannerAbortControllerRef.current = null
+      styleAbortControllerRef.current?.abort()
+      styleAbortControllerRef.current = null
     }
   }, [])
 
@@ -655,6 +665,10 @@ export default function AmazonPlanner() {
   }
 
   const generateStyleImages = async () => {
+    if (styleAbortControllerRef.current) {
+      showToast('风格板正在生成中', 'info')
+      return
+    }
     if (!styleCandidates.length) {
       showToast('请先完成 AI 策划，再生成风格板', 'error')
       return
@@ -682,6 +696,8 @@ export default function AmazonPlanner() {
       return
     }
 
+    const controller = new AbortController()
+    styleAbortControllerRef.current = controller
     setIsGeneratingStyleImages(true)
     setStyleError('')
     setSelectedStyleIndex(null)
@@ -696,67 +712,90 @@ export default function AmazonPlanner() {
       moderation: params.moderation,
       n: 1,
     }, normalizedSettings, { hasInputImages: inputImages.length > 0 })
-    let referenceImages: string[]
+
     try {
-      const referencePayload = await prepareReferencePayloadForRequest(inputImages.map((image) => image.dataUrl))
-      referenceImages = referencePayload.dataUrls
+      const referencePayload = await prepareReferencePayloadForRequest(inputImages.map((image) => image.dataUrl), controller.signal)
+      if (styleAbortControllerRef.current !== controller) return
+
+      const settled = await Promise.allSettled(styleCandidates.map(async (candidate, candidateIndex) => {
+        const result = await callImageApi({
+          settings: normalizedSettings,
+          prompt: buildAmazonStyleCandidatePrompt(candidate, activeSeriesStyleGuide),
+          params: styleParams,
+          inputImageDataUrls: referencePayload.dataUrls,
+          signal: controller.signal,
+        })
+        const dataUrl = result.images[0]
+        if (!dataUrl) throw new Error('风格板接口没有返回图片')
+        const imageId = await storeImage(dataUrl, 'generated')
+        return { candidateIndex, imageId, dataUrl }
+      }))
+      if (styleAbortControllerRef.current !== controller) return
+
+      const nextStyleImages: StyleImageState[] = settled.map((result, index) => {
+        if (result.status === 'fulfilled') {
+          return {
+            candidateIndex: result.value.candidateIndex,
+            status: 'done',
+            imageId: result.value.imageId,
+            dataUrl: result.value.dataUrl,
+          }
+        }
+        return {
+          candidateIndex: index,
+          status: 'error',
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        }
+      })
+      setStyleImages(nextStyleImages)
+
+      const failed = nextStyleImages.filter((image) => image.status === 'error')
+      updateCurrentPlannerSession({
+        styleImages: getSessionStyleImages(nextStyleImages),
+        selectedStyleIndex: null,
+      })
+      if (failed.length === styleCandidates.length) {
+        const message = failed[0]?.error || '风格板生成失败'
+        setStyleError(message)
+        showToast('风格板生成失败，请查看详情', 'error')
+        return
+      }
+      if (failed.length > 0) {
+        setStyleError(`${failed.length} 张风格板生成失败，可先选择已成功的风格板。`)
+        showToast('部分风格板生成失败', 'error')
+        return
+      }
+      showToast('风格板已生成，请选择一个视觉风格', 'success')
     } catch (err) {
+      if (styleAbortControllerRef.current !== controller || isAbortError(err) || controller.signal.aborted) return
       const message = err instanceof Error ? err.message : String(err)
       setStyleImages([])
-      setIsGeneratingStyleImages(false)
       setStyleError(message)
       showToast('风格板生成失败，请查看详情', 'error')
-      return
+    } finally {
+      if (styleAbortControllerRef.current === controller) {
+        styleAbortControllerRef.current = null
+        setIsGeneratingStyleImages(false)
+      }
     }
+  }
 
-    const settled = await Promise.allSettled(styleCandidates.map(async (candidate, candidateIndex) => {
-      const result = await callImageApi({
-        settings: normalizedSettings,
-        prompt: buildAmazonStyleCandidatePrompt(candidate, activeSeriesStyleGuide),
-        params: styleParams,
-        inputImageDataUrls: referenceImages,
-      })
-      const dataUrl = result.images[0]
-      if (!dataUrl) throw new Error('风格板接口没有返回图片')
-      const imageId = await storeImage(dataUrl, 'generated')
-      return { candidateIndex, imageId, dataUrl }
-    }))
-
-    const nextStyleImages: StyleImageState[] = settled.map((result, index) => {
-      if (result.status === 'fulfilled') {
-        return {
-          candidateIndex: result.value.candidateIndex,
-          status: 'done',
-          imageId: result.value.imageId,
-          dataUrl: result.value.dataUrl,
-        }
-      }
-      return {
-        candidateIndex: index,
-        status: 'error',
-        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-      }
-    })
-    setStyleImages(nextStyleImages)
+  const stopGeneratingStyleImages = () => {
+    const controller = styleAbortControllerRef.current
+    if (!controller) return
+    controller.abort(new DOMException('风格板生成已停止', 'AbortError'))
+    styleAbortControllerRef.current = null
     setIsGeneratingStyleImages(false)
-
-    const failed = nextStyleImages.filter((image) => image.status === 'error')
-    updateCurrentPlannerSession({
-      styleImages: getSessionStyleImages(nextStyleImages),
-      selectedStyleIndex: null,
-    })
-    if (failed.length === styleCandidates.length) {
-      const message = failed[0]?.error || '风格板生成失败'
-      setStyleError(message)
-      showToast('风格板生成失败，请查看详情', 'error')
-      return
-    }
-    if (failed.length > 0) {
-      setStyleError(`${failed.length} 张风格板生成失败，可先选择已成功的风格板。`)
-      showToast('部分风格板生成失败', 'error')
-      return
-    }
-    showToast('风格板已生成，请选择一个视觉风格', 'success')
+    setStylePreview(null)
+    setStyleError('')
+    setStyleImages((current) =>
+      current.map((image) =>
+        image.status === 'running'
+          ? { ...image, status: 'stopped', error: '已停止' }
+          : image,
+      ),
+    )
+    showToast('风格板生成已停止', 'info')
   }
 
   const applyPlannerResult = (result: PlannerApiResult, sourceLabel: string) => {
@@ -1679,6 +1718,16 @@ export default function AmazonPlanner() {
                     <PhotoIcon className="h-4 w-4" />
                     {isGeneratingStyleImages ? '生成中...' : '生成风格板'}
                   </button>
+                  {isGeneratingStyleImages && (
+                    <button
+                      type="button"
+                      onClick={stopGeneratingStyleImages}
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-red-600 px-3 text-sm font-semibold text-white transition hover:bg-red-500 dark:bg-red-500 dark:hover:bg-red-400"
+                    >
+                      <CloseIcon className="h-4 w-4" />
+                      停止
+                    </button>
+                  )}
                 </div>
               </div>
               {styleError && (
@@ -1725,7 +1774,7 @@ export default function AmazonPlanner() {
                               <img src={imageState.dataUrl} alt={candidate.label} className="h-full w-full object-cover" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center px-3 text-center text-xs text-gray-400">
-                                {imageState?.status === 'running' ? '生成中...' : imageState?.status === 'error' ? '生成失败' : '待生成'}
+                                {getStyleImagePlaceholder(imageState?.status)}
                               </div>
                             )}
                           </div>

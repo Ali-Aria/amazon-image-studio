@@ -5,6 +5,7 @@ import { isOpenRouterImageGenerationProfile } from './apiProfiles'
 import {
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
+  createLinkedAbortController,
   type CallApiOptions,
   type CallApiResult,
   fetchImageUrlAsDataUrl,
@@ -20,8 +21,22 @@ import {
 } from './imageApiShared'
 
 const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
-const OPENROUTER_ASPECT_RATIOS = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'])
 const OPENROUTER_MODALITY_RETRY_RE = /modalit|unsupported.*text|text.*unsupported/i
+const OPENROUTER_1K_PIXEL_BUDGET = 1_572_864
+const OPENROUTER_2K_PIXEL_BUDGET = 4_194_304
+const OPENROUTER_STANDARD_ASPECT_RATIOS = [
+  '1:1',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:3',
+  '4:5',
+  '5:4',
+  '9:16',
+  '16:9',
+  '21:9',
+] as const
+const OPENROUTER_EXTENDED_ASPECT_RATIOS = ['1:4', '4:1', '1:8', '8:1'] as const
 
 function getStreamPartialImages(profile: ApiProfile): number {
   return profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES
@@ -246,26 +261,63 @@ type OpenRouterChatCompletionResponse = {
   }>
 }
 
-function gcd(a: number, b: number): number {
-  while (b !== 0) {
-    const next = a % b
-    a = b
-    b = next
-  }
-  return Math.abs(a)
-}
-
-function getOpenRouterAspectRatio(size: string): string | undefined {
+function parseImageSize(size: string): { width: number; height: number } | null {
   const match = /^(\d+)x(\d+)$/i.exec(size.trim())
-  if (!match) return undefined
+  if (!match) return null
 
   const width = Number(match[1])
   const height = Number(match[2])
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return undefined
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
 
-  const divisor = gcd(width, height)
-  const aspectRatio = `${width / divisor}:${height / divisor}`
-  return OPENROUTER_ASPECT_RATIOS.has(aspectRatio) ? aspectRatio : undefined
+  return { width, height }
+}
+
+function parseAspectRatioValue(aspectRatio: string): number {
+  const [width, height] = aspectRatio.split(':').map(Number)
+  return width / height
+}
+
+function isOpenRouterExtendedAspectRatioModel(model: string): boolean {
+  return model.toLowerCase().includes('gemini-3.1-flash-image-preview')
+}
+
+function getOpenRouterAspectRatio(size: string, model: string): string | undefined {
+  const dimensions = parseImageSize(size)
+  if (!dimensions) return undefined
+
+  const targetRatio = dimensions.width / dimensions.height
+  const candidates = [
+    ...OPENROUTER_STANDARD_ASPECT_RATIOS,
+    ...(isOpenRouterExtendedAspectRatioModel(model) ? OPENROUTER_EXTENDED_ASPECT_RATIOS : []),
+  ]
+
+  return candidates
+    .map((aspectRatio) => ({
+      aspectRatio,
+      distance: Math.abs(Math.log(targetRatio / parseAspectRatioValue(aspectRatio))),
+    }))
+    .sort((a, b) => a.distance - b.distance)[0]?.aspectRatio
+}
+
+function getOpenRouterImageSize(size: string): '1K' | '2K' | '4K' | undefined {
+  const dimensions = parseImageSize(size)
+  if (!dimensions) return undefined
+
+  const pixels = dimensions.width * dimensions.height
+  if (pixels <= OPENROUTER_1K_PIXEL_BUDGET) return '1K'
+  if (pixels <= OPENROUTER_2K_PIXEL_BUDGET) return '2K'
+  return '4K'
+}
+
+function createOpenRouterImageConfig(size: string, model: string): Record<string, string> | undefined {
+  const aspectRatio = getOpenRouterAspectRatio(size, model)
+  const imageSize = getOpenRouterImageSize(size)
+  if (!aspectRatio && !imageSize) return undefined
+
+  return {
+    ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
+    ...(imageSize ? { image_size: imageSize } : {}),
+  }
 }
 
 function getOpenRouterApiBaseUrl(baseUrl: string): string {
@@ -308,9 +360,9 @@ function createOpenRouterChatBody(
     stream: false,
   }
 
-  const aspectRatio = getOpenRouterAspectRatio(opts.params.size)
-  if (aspectRatio) {
-    body.image_config = { aspect_ratio: aspectRatio }
+  const imageConfig = createOpenRouterImageConfig(opts.params.size, profile.model)
+  if (imageConfig) {
+    body.image_config = imageConfig
   }
 
   return body
@@ -679,8 +731,8 @@ async function callOpenRouterChatImageApiSingle(
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  const abortController = createLinkedAbortController(profile.timeout, opts.signal)
+  const controller = abortController.controller
 
   try {
     const response = await fetch(buildApiUrl(getOpenRouterApiBaseUrl(profile.baseUrl), 'chat/completions', proxyConfig, useApiProxy, { prefixV1: false }), {
@@ -704,7 +756,7 @@ async function callOpenRouterChatImageApiSingle(
 
     return parseOpenRouterChatImageResponse(await response.json() as OpenRouterChatCompletionResponse, mime, controller.signal)
   } finally {
-    clearTimeout(timeoutId)
+    abortController.cleanup()
   }
 }
 
@@ -720,8 +772,8 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
   const requestHeaders = createRequestHeaders(profile)
   const paths = createOpenAICompatiblePaths(customProvider)
 
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  const abortController = createLinkedAbortController(profile.timeout, opts.signal)
+  const controller = abortController.controller
 
   try {
     let response: Response
@@ -836,7 +888,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
 
     return parseImagesApiResponse(await response.json() as ImageApiResponse, mime, controller.signal)
   } finally {
-    clearTimeout(timeoutId)
+    abortController.cleanup()
   }
 }
 
@@ -1109,8 +1161,9 @@ async function callCustomHttpImageApi(opts: CallApiOptions, profile: ApiProfile,
   const { params, inputImageDataUrls } = opts
   const isEdit = inputImageDataUrls.length > 0
   const mime = MIME_MAP[params.output_format] || 'image/png'
-  const controller = new AbortController()
-  let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  const abortController = createLinkedAbortController(profile.timeout, opts.signal)
+  const controller = abortController.controller
+  let submitTimeoutActive = true
 
   try {
     const submitMapping = isEdit && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
@@ -1125,13 +1178,13 @@ async function callCustomHttpImageApi(opts: CallApiOptions, profile: ApiProfile,
     if (!taskId) return extractCustomImages(submitPayload, submitMapping.result ?? {}, mime, controller.signal)
     if (!customProvider.poll) throw new Error('异步接口返回了 task_id，但服务商配置缺少 poll')
     opts.onCustomTaskEnqueued?.({ taskId })
-    if (timeoutId) {
-      clearTimeout(timeoutId)
-      timeoutId = null
+    if (submitTimeoutActive) {
+      abortController.clearTimeout()
+      submitTimeoutActive = false
     }
     return pollCustomTaskResult(profile, customProvider.poll, taskId, mime, controller.signal)
   } finally {
-    if (timeoutId) clearTimeout(timeoutId)
+    abortController.cleanup()
   }
 }
 
@@ -1181,8 +1234,8 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  const abortController = createLinkedAbortController(profile.timeout, opts.signal)
+  const controller = abortController.controller
 
   try {
     if (opts.maskDataUrl) {
@@ -1237,6 +1290,6 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       revisedPrompts: imageResults.map((result) => result.revisedPrompt),
     }
   } finally {
-    clearTimeout(timeoutId)
+    abortController.cleanup()
   }
 }
