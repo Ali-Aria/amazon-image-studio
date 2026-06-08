@@ -210,7 +210,7 @@ OpenRouter 生图模型不提供 OpenAI `/images/generations` 路径，应用会
 - 模型：文本/多模态模型，例如 DeepSeek 使用 `deepseek-v4-flash`
 - API Key：填写你自己的 Key
 
-DeepSeek 示例：API URL 填 `https://api.deepseek.com`，API 接口选择 `Chat Completions (/chat/completions)`，模型填 `deepseek-v4-flash`。
+DeepSeek 示例：API URL 填 `https://api.deepseek.com`，API 接口选择 `Chat Completions (/chat/completions)`，模型填 `deepseek-v4-flash`。当前 DeepSeek 官方 Chat Completions 接口只接收文本内容，本项目检测到该地址时会自动跳过参考图，仅用 Listing 文本做 AI 策划。
 
 在设置页中，把“AI 策划配置”选择为这个 Chat Completions 配置。这样生图和策划不需要来回切换接口类型。
 
@@ -289,7 +289,7 @@ stop-amazon-image-studio.bat
 
 ### AI 策划失败
 
-检查“AI 策划配置”是否使用了文本接口，并确认模型不是图片生成模型。DeepSeek 请使用 `Chat Completions (/chat/completions)`；部分图片中转接口只开放 `/v1/images`，不支持聊天或 Responses 接口，这种情况下 AI 策划会失败。
+检查“AI 策划配置”是否使用了文本接口，并确认模型不是图片生成模型。DeepSeek 请使用 `Chat Completions (/chat/completions)`；当前 DeepSeek 官方接口不接收参考图，本项目会自动跳过参考图。部分图片中转接口只开放 `/v1/images`，不支持聊天或 Responses 接口，这种情况下 AI 策划会失败。
 
 ### 生图失败
 

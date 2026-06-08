@@ -260,6 +260,54 @@ describe('callAmazonPlannerApi', () => {
   })
 
   it('uses Chat Completions planning with multimodal user content when references are present', async () => {
+    const apiPayload = createApiPayload('Chat planned tumbler')
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: JSON.stringify(apiPayload),
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
+      referenceImageDataUrls: ['data:image/png;base64,ref-chat'],
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com',
+        apiKey: 'chat-key',
+        apiMode: 'chat',
+        model: DEFAULT_CHAT_MODEL,
+      }),
+    })
+
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('https://api.example.com/chat/completions')
+    const body = JSON.parse(String(init?.body))
+    expect(body.messages[0].content).toContain('Return a valid JSON object only')
+    expect(body.messages[0].content).not.toContain('styleCandidates')
+    expect(body.messages[0].content).toContain('Amazon Listing reference material for the planner')
+    expect(body.messages[0].content).toContain('built-in preset style reference boards')
+    expect(body.messages[1].content[0]).toMatchObject({ type: 'text' })
+    expect(body.messages[1].content[1]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,ref-chat' },
+    })
+    expect(body.response_format).toEqual({ type: 'json_object' })
+    expect(result.parsed.title).toBe('Chat planned tumbler')
+    expect(result.plans).toHaveLength(7)
+  })
+
+  it('omits reference images for DeepSeek Chat Completions planning', async () => {
     const apiPayload = createApiPayload('DeepSeek planned tumbler')
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
       choices: [
@@ -293,15 +341,9 @@ describe('callAmazonPlannerApi', () => {
     const [url, init] = fetchMock.mock.calls[0]!
     expect(url).toBe('https://api.deepseek.com/chat/completions')
     const body = JSON.parse(String(init?.body))
-    expect(body.messages[0].content).toContain('Return a valid JSON object only')
-    expect(body.messages[0].content).not.toContain('styleCandidates')
-    expect(body.messages[0].content).toContain('Amazon Listing reference material for the planner')
-    expect(body.messages[0].content).toContain('built-in preset style reference boards')
-    expect(body.messages[1].content[0]).toMatchObject({ type: 'text' })
-    expect(body.messages[1].content[1]).toEqual({
-      type: 'image_url',
-      image_url: { url: 'data:image/png;base64,ref-chat' },
-    })
+    expect(typeof body.messages[1].content).toBe('string')
+    expect(body.messages[1].content).toContain('Parse this Amazon listing copy')
+    expect(JSON.stringify(body.messages)).not.toContain('image_url')
     expect(body.response_format).toEqual({ type: 'json_object' })
     expect(result.parsed.title).toBe('DeepSeek planned tumbler')
     expect(result.plans).toHaveLength(7)

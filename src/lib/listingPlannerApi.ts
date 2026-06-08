@@ -557,6 +557,21 @@ function buildResponsesPlannerInput(text: string, referenceImageDataUrls: string
   ]
 }
 
+function isDeepSeekApiBaseUrl(baseUrl: string): boolean {
+  const rawBaseUrl = baseUrl.trim()
+  if (!rawBaseUrl) return false
+
+  const input = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(rawBaseUrl)
+    ? rawBaseUrl
+    : `https://${rawBaseUrl}`
+
+  try {
+    return new URL(input).hostname.toLowerCase() === 'api.deepseek.com'
+  } catch {
+    return /^(?:https?:\/\/)?api\.deepseek\.com(?:[/:]|$)/i.test(rawBaseUrl)
+  }
+}
+
 function buildChatPlannerSchemaGuide(mode: AmazonPlannerMode, aPlusType: APlusContentType) {
   const productFields = 'product { title, category, color, material, audience, packageIncludes }'
   const styleFields = 'seriesStyleGuide string'
@@ -608,7 +623,9 @@ export async function callAmazonPlannerApi(options: {
   const useApiProxy = shouldUseApiProxy(options.profile.apiProxy, proxyConfig)
   const useChatCompletions = options.profile.apiMode === 'chat'
   const inputText = buildPlannerInputText(options.listingText, mode, aPlusType)
-  const referenceImageDataUrls = options.referenceImageDataUrls ?? []
+  const referenceImageDataUrls = isDeepSeekApiBaseUrl(options.profile.baseUrl)
+    ? []
+    : options.referenceImageDataUrls ?? []
   const response = await fetch(
     useChatCompletions
       ? buildApiUrl(options.profile.baseUrl, 'chat/completions', proxyConfig, useApiProxy, { prefixV1: false })
