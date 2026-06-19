@@ -5,11 +5,14 @@ import {
   buildAmazonAPlusPlanPrompt,
   buildAmazonPlanPrompt,
   formatAPlusModuleText,
+  insertAPlusModuleSpecAfter,
+  MAX_A_PLUS_MODULE_COUNT,
   getAPlusContentTypeLabel,
   getAPlusModuleDisplayName,
   getAPlusModuleEnglishName,
   getAPlusModuleSpecs,
   isAmazonListingMainSlot,
+  removeAPlusModuleSpecAt,
 } from './listingPlanner'
 import { callAmazonPlannerApi } from './listingPlannerApi'
 
@@ -178,6 +181,45 @@ describe('A+ module helpers', () => {
     expect(getAPlusModuleEnglishName(mobileSpecs[1]!)).toBe('Mobile Feature 1')
   })
 
+  it('adds and removes A+ modules inline while reindexing slots and labels', () => {
+    const defaultSpecs = getAPlusModuleSpecs('standard-large')
+    const addedSpecs = insertAPlusModuleSpecAfter('standard-large', defaultSpecs, 4)
+
+    expect(addedSpecs).toHaveLength(6)
+    expect(addedSpecs.map((spec) => spec.slot)).toEqual(['A+L01', 'A+L02', 'A+L03', 'A+L04', 'A+L05', 'A+L06'])
+    expect(addedSpecs[5]).toMatchObject({
+      label: 'Single Image 5',
+      displayLabel: '大图模块 5',
+      moduleType: 'single-image',
+      uploadWidth: 970,
+      uploadHeight: 600,
+    })
+
+    const removedSpecs = removeAPlusModuleSpecAt('standard-large', addedSpecs, 0)
+    expect(removedSpecs.map((spec) => spec.slot)).toEqual(['A+L01', 'A+L02', 'A+L03', 'A+L04', 'A+L05'])
+    expect(removedSpecs[0]).toMatchObject({
+      label: 'Single Image 1',
+      displayLabel: '大图模块 1',
+      moduleType: 'single-image',
+      uploadWidth: 970,
+      uploadHeight: 600,
+    })
+  })
+
+  it('keeps A+ module counts between 1 and 12', () => {
+    let specs = getAPlusModuleSpecs('mobile')
+    for (let index = 0; index < 20; index += 1) {
+      specs = insertAPlusModuleSpecAfter('mobile', specs, specs.length - 1)
+    }
+
+    expect(specs).toHaveLength(MAX_A_PLUS_MODULE_COUNT)
+    for (let index = 0; index < 20; index += 1) {
+      specs = removeAPlusModuleSpecAt('mobile', specs, specs.length - 1)
+    }
+    expect(specs).toHaveLength(1)
+    expect(specs[0]?.slot).toBe('A+M01')
+  })
+
   it('formats external A+ module copy from the LLM', () => {
     expect(formatAPlusModuleText({
       textTitle: 'Organized in Seconds',
@@ -186,8 +228,11 @@ describe('A+ module helpers', () => {
   })
 })
 
-function createApiPlans() {
-  return ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06'].map((slot) => ({
+function createApiPlans(count = 7) {
+  return [
+    'MAIN',
+    ...Array.from({ length: count - 1 }, (_, index) => `PT${String(index + 1).padStart(2, '0')}`),
+  ].map((slot) => ({
     slot,
     label: `${slot} 方案`,
     planMarkdown: `## ${slot} 主图方案\n\n中文策划说明。`,
@@ -196,7 +241,7 @@ function createApiPlans() {
   }))
 }
 
-function createApiPayload(title = 'AI planned tumbler') {
+function createApiPayload(title = 'AI planned tumbler', count = 7) {
   return {
     product: {
       title,
@@ -209,7 +254,7 @@ function createApiPayload(title = 'AI planned tumbler') {
     },
     sellingPoints: ['Cold for 24 hours'],
     seriesStyleGuide: 'Use a cohesive warm commercial style across the set.',
-    imagePlans: createApiPlans(),
+    imagePlans: createApiPlans(count),
   }
 }
 
@@ -242,6 +287,21 @@ function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P' | 'A+M', brand = '') {
   }))
 }
 
+function createAPlusPlansFromSpecs(specs: ReturnType<typeof getAPlusModuleSpecs>, brand = '') {
+  return specs.map((spec, index) => ({
+    slot: spec.slot,
+    label: `${spec.slot} 模块`,
+    moduleType: spec.moduleType,
+    planMarkdown: `## ${spec.slot} 模块方案\n\n中文 A+ 策划说明。`,
+    textTitle: spec.moduleType === 'highlight-tile' ? `Benefit ${spec.slot}` : '',
+    textBody: spec.moduleType === 'highlight-tile' ? `External A+ copy for ${spec.slot}.` : '',
+    prompt: brand && index === 0
+      ? `Create A+ module ${spec.slot} for ${brand}, using the brand name as a small headline line.`
+      : `Create A+ module ${spec.slot} for the product.`,
+    negativePrompt: `negative ${spec.slot}`,
+  }))
+}
+
 function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P' | 'A+M', title = 'AI planned A+ tumbler', brand = '') {
   return {
     product: {
@@ -256,6 +316,23 @@ function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P' | 'A+M', title = 'AI p
     sellingPoints: ['Cold for 24 hours'],
     seriesStyleGuide: 'Use a cohesive A+ visual style across the module set.',
     aPlusPlans: createAPlusPlans(prefix, brand),
+  }
+}
+
+function createAPlusPayloadFromSpecs(specs: ReturnType<typeof getAPlusModuleSpecs>, title = 'AI planned A+ tumbler', brand = '') {
+  return {
+    product: {
+      title,
+      category: 'Kitchen / Drinkware',
+      brand,
+      color: 'matte black',
+      material: 'stainless steel',
+      audience: 'commuters',
+      packageIncludes: '1 tumbler, 1 straw',
+    },
+    sellingPoints: ['Cold for 24 hours'],
+    seriesStyleGuide: 'Use a cohesive A+ visual style across the module set.',
+    aPlusPlans: createAPlusPlansFromSpecs(specs, brand),
   }
 }
 
@@ -311,6 +388,9 @@ describe('callAmazonPlannerApi', () => {
     expect(body.text.format.schema.required).not.toContain('styleCandidates')
     expect(body.text.format.schema.required).not.toContain('visualSystem')
     expect(body.text.format.schema.properties.product.properties).toHaveProperty('brand')
+    expect(body.text.format.schema.properties.imagePlans.minItems).toBe(7)
+    expect(body.text.format.schema.properties.imagePlans.maxItems).toBe(7)
+    expect(body.text.format.schema.properties.imagePlans.items.properties.slot.enum).toEqual(['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06'])
     expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('planMarkdown')
     expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('negativePrompt')
     expect(body.input[0].content[0].text).toContain('Parse this Amazon listing copy')
@@ -322,6 +402,39 @@ describe('callAmazonPlannerApi', () => {
       planMarkdown: expect.stringContaining('MAIN 主图方案'),
       negativePrompt: 'negative MAIN',
     })
+  })
+
+  it('uses the requested Listing image count in Responses schema, instructions, input, and result validation', async () => {
+    const apiPayload = createApiPayload('10 image tumbler', 10)
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(apiPayload),
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
+      listingImageCount: 10,
+    })
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    const slots = ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06', 'PT07', 'PT08', 'PT09']
+    expect(body.text.format.schema.properties.imagePlans.minItems).toBe(10)
+    expect(body.text.format.schema.properties.imagePlans.maxItems).toBe(10)
+    expect(body.text.format.schema.properties.imagePlans.items.properties.slot.enum).toEqual(slots)
+    expect(body.instructions).toContain(`exactly 10 Amazon listing image slots: ${slots.join(', ')}`)
+    expect(body.input[0].content[0].text).toContain('produce the 10-image visual plan')
+    expect(result.plans).toHaveLength(10)
+    expect(result.plans.map((plan) => plan.slot)).toEqual(slots)
   })
 
   it('uses Chat Completions planning with multimodal user content when references are present', async () => {
@@ -373,6 +486,43 @@ describe('callAmazonPlannerApi', () => {
     expect(body.response_format).toEqual({ type: 'json_object' })
     expect(result.parsed.title).toBe('Chat planned tumbler')
     expect(result.plans).toHaveLength(7)
+  })
+
+  it('uses the requested Listing image count in Chat Completions schema guidance', async () => {
+    const apiPayload = createApiPayload('Chat 10 image tumbler', 10)
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: JSON.stringify(apiPayload),
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com',
+        apiKey: 'chat-key',
+        apiMode: 'chat',
+        model: DEFAULT_CHAT_MODEL,
+      }),
+      listingImageCount: 10,
+    })
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.messages[0].content).toContain('imagePlans must contain exactly 10 items in this order: MAIN, PT01, PT02, PT03, PT04, PT05, PT06, PT07, PT08, PT09.')
+    expect(body.messages[1].content).toContain('produce the 10-image visual plan')
+    expect(result.plans).toHaveLength(10)
   })
 
   it('omits reference images for DeepSeek Chat Completions planning', async () => {
@@ -537,6 +687,71 @@ describe('callAmazonPlannerApi', () => {
       textTitle: 'Benefit A+S05',
       textBody: 'External A+ copy for A+S05.',
     })
+  })
+
+  it('uses custom A+ module specs in schema, prompts, chat guide, and result validation', async () => {
+    const customSpecs = insertAPlusModuleSpecAfter('standard-large', getAPlusModuleSpecs('standard-large'), 4)
+    const customPayload = createAPlusPayloadFromSpecs(customSpecs, 'Custom A+ tumbler', 'ExampleBrand')
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(customPayload),
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const responseResult = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: { ...DEFAULT_AMAZON_PROMPT_DRAFT, brand: 'ExampleBrand' },
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
+      mode: 'aplus',
+      aPlusType: 'standard-large',
+      aPlusModuleSpecs: customSpecs,
+      aPlusGenerationTier: '2K',
+    })
+
+    const responseBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(responseBody.text.format.schema.properties.aPlusPlans.minItems).toBe(6)
+    expect(responseBody.text.format.schema.properties.aPlusPlans.maxItems).toBe(6)
+    expect(responseBody.text.format.schema.properties.aPlusPlans.items.properties.slot.enum).toEqual(['A+L01', 'A+L02', 'A+L03', 'A+L04', 'A+L05', 'A+L06'])
+    expect(responseBody.instructions).toContain('Return exactly 6 modules')
+    expect(responseBody.instructions).toContain('A+L06 Single Image 5 970x600px')
+    expect(responseBody.input[0].content[0].text).toContain('Use these A+ modules exactly: A+L01, A+L02, A+L03, A+L04, A+L05, A+L06.')
+    expect(responseResult.aPlusPlans).toHaveLength(6)
+    expect(responseResult.aPlusPlans[5]).toMatchObject({
+      slot: 'A+L06',
+      label: 'Single Image 5',
+      moduleType: 'single-image',
+      uploadSize: '970x600',
+      planMarkdown: expect.stringContaining('A+L06 模块方案'),
+    })
+
+    fetchMock.mockClear()
+    const chatResult = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: { ...DEFAULT_AMAZON_PROMPT_DRAFT, brand: 'ExampleBrand' },
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'chat',
+        model: 'gpt-planner-profile',
+      }),
+      mode: 'aplus',
+      aPlusType: 'standard-large',
+      aPlusModuleSpecs: customSpecs,
+      aPlusGenerationTier: '2K',
+    })
+
+    const chatBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(chatBody.messages[0].content).toContain('Return exactly 6 modules')
+    expect(chatBody.messages[0].content).toContain('aPlusPlans must contain exactly 6 items in this order: A+L01, A+L02, A+L03, A+L04, A+L05, A+L06.')
+    expect(chatBody.messages[1].content).toContain('Use these A+ modules exactly: A+L01, A+L02, A+L03, A+L04, A+L05, A+L06.')
+    expect(chatResult.aPlusPlans).toHaveLength(6)
   })
 
   it('parses Mobile A+ output as five fixed 600x450 modules', async () => {

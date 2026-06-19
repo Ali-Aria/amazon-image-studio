@@ -273,6 +273,17 @@ export interface AmazonPlannerSessionAPlusPlan {
   negativePrompt: string
 }
 
+export interface AmazonPlannerSessionAPlusModuleSpec {
+  contentType: 'standard' | 'standard-large' | 'premium' | 'mobile' | 'optional'
+  slot: string
+  label: string
+  displayLabel: string
+  moduleType: string
+  uploadWidth: number
+  uploadHeight: number
+  objective: string
+}
+
 export interface AmazonPlannerSessionStyleImage {
   candidateIndex: number
   imageId: string
@@ -305,6 +316,8 @@ export interface AmazonPlannerSession {
   mode: 'listing' | 'aplus'
   aPlusType: 'standard' | 'standard-large' | 'premium' | 'mobile'
   resolution: '2k' | '4k'
+  listingImageCount?: number
+  aPlusModuleSpecs?: Partial<Record<'standard' | 'standard-large' | 'premium' | 'mobile', AmazonPlannerSessionAPlusModuleSpec[]>>
   listingText: string
   referenceImageIds: string[]
   draft: AmazonPlannerSessionDraft

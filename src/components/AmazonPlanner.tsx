@@ -6,9 +6,17 @@ import {
   type AmazonPromptDraft,
 } from '../lib/amazonPrompt'
 import {
+  A_PLUS_CONTENT_TYPES,
   buildAmazonAPlusPlanPrompt,
   buildAmazonPlanPrompt,
+  DEFAULT_LISTING_IMAGE_COUNT,
+  formatAmazonListingSlotRange,
   formatAPlusModuleText,
+  areAPlusModuleSpecsEquivalent,
+  insertAPlusModuleSpecAfter,
+  LISTING_IMAGE_COUNT_OPTIONS,
+  MAX_A_PLUS_MODULE_COUNT,
+  MIN_A_PLUS_MODULE_COUNT,
   getAPlusContentTypeLabel,
   getAPlusModuleDisplayName,
   getAPlusModuleEnglishName,
@@ -17,8 +25,12 @@ import {
   getAPlusModuleUploadSize,
   isAmazonListingMainSlot,
   isAPlusTextModule,
+  normalizeAPlusModuleSpecs,
+  normalizeListingImageCount,
+  removeAPlusModuleSpecAt,
   withAPlusGenerationSizes,
   type APlusContentType,
+  type AmazonAPlusModuleSpec,
   type AmazonAPlusPlan,
   type AmazonImagePlan,
   type AmazonPlannerMode,
@@ -46,7 +58,7 @@ import {
 import { DEFAULT_PARAMS } from '../types'
 import type { AmazonPlannerSession, CustomStyleReference, StyleReferenceEditState } from '../types'
 import StyleReferenceEditorModal from './StyleReferenceEditorModal'
-import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, CopyIcon, EditIcon, EyeIcon, HistoryIcon, PhotoIcon, PlusIcon, TrashIcon } from './icons'
+import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, CopyIcon, EditIcon, EyeIcon, HistoryIcon, PhotoIcon, PlusIcon, RefreshIcon, TrashIcon } from './icons'
 
 const FIELD_CLASS = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500'
 const LABEL_CLASS = 'mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400'
@@ -72,6 +84,7 @@ type GuidePanelTone = 'white' | 'muted'
 type PlannerActionProgress = 'filled' | 'submitted'
 type PlannerActionProgressMap = Record<string, PlannerActionProgress>
 type MobileActionDock = 'left' | 'right' | null
+type APlusModuleSpecsByType = Partial<Record<APlusContentType, AmazonAPlusModuleSpec[]>>
 type SelectedStyleReference = {
   presetId: string | null
   customStyleReferenceId: string | null
@@ -106,6 +119,39 @@ function normalizeHistoryTitle(value: string) {
 
 function getPlannerSessionTitle(draft: AmazonPromptDraft, listingText: string) {
   return normalizeHistoryTitle(draft.productTitle) || normalizeHistoryTitle(listingText) || '未命名策划'
+}
+
+function getSessionListingImageCount(session: AmazonPlannerSession) {
+  if (session.listingImageCount != null) return normalizeListingImageCount(session.listingImageCount)
+  return normalizeListingImageCount(session.imagePlans.length || DEFAULT_LISTING_IMAGE_COUNT)
+}
+
+function getSessionAPlusModuleSpecsByType(session: AmazonPlannerSession): APlusModuleSpecsByType {
+  const sessionSpecs = session.aPlusModuleSpecs ?? {}
+  return A_PLUS_CONTENT_TYPES.reduce<APlusModuleSpecsByType>((result, type) => {
+    const specs = sessionSpecs[type]
+    if (Array.isArray(specs) && specs.length) {
+      const normalizedSpecs = normalizeAPlusModuleSpecs(type, specs as Array<Partial<AmazonAPlusModuleSpec>>)
+      if (!areAPlusModuleSpecsEquivalent(normalizedSpecs, getAPlusModuleSpecs(type))) {
+        result[type] = normalizedSpecs
+      }
+    }
+    return result
+  }, {})
+}
+
+function getAPlusModuleSpecsForSession(
+  specsByType: APlusModuleSpecsByType,
+): AmazonPlannerSession['aPlusModuleSpecs'] {
+  const entries = A_PLUS_CONTENT_TYPES
+    .map((type) => {
+      const specs = specsByType[type]
+      if (!specs?.length || areAPlusModuleSpecsEquivalent(specs, getAPlusModuleSpecs(type))) return null
+      return [type, specs] as const
+    })
+    .filter((entry): entry is readonly [APlusContentType, AmazonAPlusModuleSpec[]] => Boolean(entry))
+
+  return entries.length ? Object.fromEntries(entries) : undefined
 }
 
 function formatPlannerSessionTime(value: number) {
@@ -316,8 +362,10 @@ export default function AmazonPlanner() {
   const stylePresetAbortControllerRef = useRef<AbortController | null>(null)
   const [draft, setDraft] = useState<AmazonPromptDraft>(DEFAULT_AMAZON_PROMPT_DRAFT)
   const [resolution, setResolution] = useState<'2k' | '4k'>('2k')
+  const [listingImageCount, setListingImageCount] = useState(DEFAULT_LISTING_IMAGE_COUNT)
   const [plannerMode, setPlannerMode] = useState<AmazonPlannerMode>('listing')
   const [aPlusType, setAPlusType] = useState<APlusContentType>('standard-large')
+  const [aPlusModuleSpecsByType, setAPlusModuleSpecsByType] = useState<APlusModuleSpecsByType>({})
   const [listingText, setListingText] = useState('')
   const [imagePlans, setImagePlans] = useState<AmazonImagePlan[]>([])
   const [aPlusPlans, setAPlusPlans] = useState<AmazonAPlusPlan[]>([])
@@ -352,7 +400,13 @@ export default function AmazonPlanner() {
   const [actionProgress, setActionProgress] = useState<PlannerActionProgressMap>({})
   const [mobileActionDock, setMobileActionDock] = useState<MobileActionDock>(null)
   const resolutionTier = resolution === '4k' ? '4K' : '2K'
-  const aPlusSpecs = useMemo(() => getAPlusModuleSpecs(aPlusType), [aPlusType])
+  const listingSlotRange = formatAmazonListingSlotRange(listingImageCount)
+  const aPlusSpecs = useMemo(
+    () => normalizeAPlusModuleSpecs(aPlusType, aPlusModuleSpecsByType[aPlusType]),
+    [aPlusModuleSpecsByType, aPlusType],
+  )
+  const aPlusDefaultSpecs = useMemo(() => getAPlusModuleSpecs(aPlusType), [aPlusType])
+  const aPlusSpecsAreDefault = areAPlusModuleSpecsEquivalent(aPlusSpecs, aPlusDefaultSpecs)
   const aPlusPlansWithSizes = useMemo(() => withAPlusGenerationSizes(aPlusPlans, resolutionTier), [aPlusPlans, resolutionTier])
   const selectedPlan = selectedPlanIndex == null ? null : imagePlans[selectedPlanIndex] ?? null
   const selectedAPlusPlan = selectedAPlusPlanIndex == null ? null : aPlusPlansWithSizes[selectedAPlusPlanIndex] ?? null
@@ -579,6 +633,10 @@ export default function AmazonPlanner() {
       mode: overrides.mode ?? plannerMode,
       aPlusType: overrides.aPlusType ?? aPlusType,
       resolution: overrides.resolution ?? resolution,
+      listingImageCount: overrides.listingImageCount ?? listingImageCount,
+      aPlusModuleSpecs: hasOverride('aPlusModuleSpecs')
+        ? overrides.aPlusModuleSpecs
+        : getAPlusModuleSpecsForSession(aPlusModuleSpecsByType),
       listingText: snapshotListingText,
       referenceImageIds: overrides.referenceImageIds ?? inputImages.map((image) => image.id),
       draft: overrides.draft ?? toSessionDraft(draft),
@@ -1000,6 +1058,8 @@ export default function AmazonPlanner() {
     void savePlannerSession({
       id: createPlannerSessionId(),
       mode: result.mode,
+      listingImageCount,
+      aPlusModuleSpecs: getAPlusModuleSpecsForSession(aPlusModuleSpecsByType),
       draft: toSessionDraft(nextDraft),
       seriesStyleGuides: nextSeriesStyleGuides,
       styleCandidates: [],
@@ -1071,7 +1131,9 @@ export default function AmazonPlanner() {
         profile: plannerProfile,
         referenceImageDataUrls: referencePayload.dataUrls,
         mode: plannerMode,
+        listingImageCount,
         aPlusType,
+        aPlusModuleSpecs: aPlusSpecs,
         aPlusGenerationTier: resolutionTier,
         signal: controller.signal,
       })
@@ -1156,8 +1218,51 @@ export default function AmazonPlanner() {
     }
   }
 
+  const changeListingImageCount = (value: string) => {
+    const nextCount = normalizeListingImageCount(value)
+    setListingImageCount(nextCount)
+    updateCurrentPlannerSession({ listingImageCount: nextCount })
+  }
+
+  const saveAPlusModuleSpecsByType = (nextSpecsByType: APlusModuleSpecsByType) => {
+    const sessionSpecs = getAPlusModuleSpecsForSession(nextSpecsByType)
+    updateCurrentPlannerSession({ aPlusModuleSpecs: sessionSpecs })
+  }
+
+  const updateCurrentAPlusModuleSpecs = (nextSpecs: AmazonAPlusModuleSpec[]) => {
+    const normalizedSpecs = normalizeAPlusModuleSpecs(aPlusType, nextSpecs)
+    const next = { ...aPlusModuleSpecsByType }
+    if (areAPlusModuleSpecsEquivalent(normalizedSpecs, getAPlusModuleSpecs(aPlusType))) {
+      delete next[aPlusType]
+    } else {
+      next[aPlusType] = normalizedSpecs
+    }
+    setAPlusModuleSpecsByType(next)
+    saveAPlusModuleSpecsByType(next)
+  }
+
+  const addAPlusModuleAfter = (index: number) => {
+    if (isPlanning || aPlusPlans.length > 0 || aPlusSpecs.length >= MAX_A_PLUS_MODULE_COUNT) return
+    updateCurrentAPlusModuleSpecs(insertAPlusModuleSpecAfter(aPlusType, aPlusSpecs, index))
+  }
+
+  const removeAPlusModuleAt = (index: number) => {
+    if (isPlanning || aPlusPlans.length > 0 || aPlusSpecs.length <= MIN_A_PLUS_MODULE_COUNT) return
+    updateCurrentAPlusModuleSpecs(removeAPlusModuleSpecAt(aPlusType, aPlusSpecs, index))
+  }
+
+  const restoreDefaultAPlusModules = () => {
+    if (isPlanning || aPlusPlans.length > 0 || aPlusSpecsAreDefault) return
+    const next = { ...aPlusModuleSpecsByType }
+    delete next[aPlusType]
+    setAPlusModuleSpecsByType(next)
+    saveAPlusModuleSpecsByType(next)
+  }
+
   const clearListingPlan = () => {
     setListingText('')
+    setListingImageCount(DEFAULT_LISTING_IMAGE_COUNT)
+    setAPlusModuleSpecsByType({})
     setImagePlans([])
     setAPlusPlans([])
     setSeriesStyleGuides({ listing: '', aplus: '' })
@@ -1281,9 +1386,12 @@ export default function AmazonPlanner() {
       }
     }
 
+    const restoredAPlusModuleSpecsByType = getSessionAPlusModuleSpecsByType(session)
     setPlannerMode(session.mode)
     setAPlusType(session.aPlusType)
     setResolution(session.resolution)
+    setListingImageCount(getSessionListingImageCount(session))
+    setAPlusModuleSpecsByType(restoredAPlusModuleSpecsByType)
     setListingText(session.listingText)
     setInputImages(restoredReferences)
     setDraft(fromSessionDraft(session.draft))
@@ -1303,6 +1411,8 @@ export default function AmazonPlanner() {
     setActionProgress({})
     const restoredSession = {
       ...session,
+      listingImageCount: getSessionListingImageCount(session),
+      aPlusModuleSpecs: getAPlusModuleSpecsForSession(restoredAPlusModuleSpecsByType),
       selectedStylePresetId: restoredStyleReference ? restoredStyleReference.presetId : nextStylePresetId,
       selectedStyleReferenceImageId: restoredStyleReference?.imageId ?? null,
       selectedCustomStyleReferenceId: restoredCustomStyleReference?.id ?? null,
@@ -1425,6 +1535,20 @@ export default function AmazonPlanner() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {plannerMode === 'listing' && (
+              <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-300">
+                <span className="text-xs text-gray-400 dark:text-gray-500">图片数</span>
+                <select
+                  value={listingImageCount}
+                  onChange={(event) => changeListingImageCount(event.target.value)}
+                  className="h-7 rounded-md border border-gray-200 bg-gray-50 px-2 text-sm font-semibold text-gray-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-gray-100"
+                >
+                  {LISTING_IMAGE_COUNT_OPTIONS.map((count) => (
+                    <option key={count} value={count}>{count} 张</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="inline-flex rounded-xl border border-gray-200 bg-gray-100 p-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
               {(['2k', '4k'] as const).map((item) => (
                 <button
@@ -1534,7 +1658,7 @@ export default function AmazonPlanner() {
                 <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                   {plannerMode === 'aplus'
                     ? '粘贴标题、五点描述或品牌说明，生成普通A+ / 标准A+ / 高级A+ / 手机A+模块编排和英文提示词。'
-                    : '粘贴标题、五点描述或产品说明，生成 Main + PT01-PT06 的逐张方案和英文提示词。'}
+                    : `粘贴标题、五点描述或产品说明，生成 ${listingSlotRange} 的逐张方案和英文提示词。`}
                 </div>
               </div>
               <div className="rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
@@ -2332,26 +2456,64 @@ export default function AmazonPlanner() {
                 <div>
                   <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">A+ 模块编排</div>
                   <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                    当前选择 {getAPlusContentTypeLabel(aPlusType)}，点击 AI策划A+ 后生成逐模块方案。
+                    当前选择 {getAPlusContentTypeLabel(aPlusType)}，可先调整模块数量，再点击 AI策划A+。
                   </div>
                 </div>
-                <span className="shrink-0 rounded-lg bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
-                  {aPlusSpecs.length} 张
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={restoreDefaultAPlusModules}
+                    disabled={isPlanning || aPlusSpecsAreDefault}
+                    title="恢复当前 A+ 类型默认模块"
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2 text-xs font-medium transition ${!isPlanning && !aPlusSpecsAreDefault ? 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:border-white/[0.08] dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.06] dark:hover:text-white' : 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-300 dark:border-white/[0.04] dark:bg-white/[0.04] dark:text-gray-600'}`}
+                  >
+                    <RefreshIcon className="h-3.5 w-3.5" />
+                    恢复默认
+                  </button>
+                  <span className="rounded-lg bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
+                    {aPlusSpecs.length} 张
+                  </span>
+                </div>
               </div>
               <div className={PLAN_LIST_CLASS}>
-                {aPlusSpecs.map((spec) => (
+                {aPlusSpecs.map((spec, index) => (
                   <div key={spec.slot} className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-2 dark:border-white/[0.08] dark:bg-gray-900">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-bold text-gray-600 dark:bg-white/[0.08] dark:text-gray-300">
-                        {spec.slot}
-                      </span>
-                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{getAPlusModuleDisplayName(spec)}</span>
-                      <span className="text-xs text-gray-400">{getAPlusModuleEnglishName(spec)}</span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                      上传 {getAPlusModuleUploadSize(spec)} · 生成 {getAPlusModuleGenerationSize(spec, resolutionTier)}
-                      {isAPlusTextModule(spec) ? ' · 含标题/正文' : ''}
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-bold text-gray-600 dark:bg-white/[0.08] dark:text-gray-300">
+                            {spec.slot}
+                          </span>
+                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{getAPlusModuleDisplayName(spec)}</span>
+                          <span className="text-xs text-gray-400">{getAPlusModuleEnglishName(spec)}</span>
+                        </div>
+                        <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                          上传 {getAPlusModuleUploadSize(spec)} · 生成 {getAPlusModuleGenerationSize(spec, resolutionTier)}
+                          {isAPlusTextModule(spec) ? ' · 含标题/正文' : ''}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => addAPlusModuleAfter(index)}
+                          disabled={isPlanning || aPlusSpecs.length >= MAX_A_PLUS_MODULE_COUNT}
+                          aria-label={`在 ${spec.slot} 后添加同尺寸 A+ 模块`}
+                          title={aPlusSpecs.length >= MAX_A_PLUS_MODULE_COUNT ? `最多 ${MAX_A_PLUS_MODULE_COUNT} 张` : '添加同尺寸模块'}
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${!isPlanning && aPlusSpecs.length < MAX_A_PLUS_MODULE_COUNT ? 'border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200 dark:hover:bg-blue-400/20' : 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-300 dark:border-white/[0.04] dark:bg-white/[0.04] dark:text-gray-600'}`}
+                        >
+                          <PlusIcon className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeAPlusModuleAt(index)}
+                          disabled={isPlanning || aPlusSpecs.length <= MIN_A_PLUS_MODULE_COUNT}
+                          aria-label={`删除 ${spec.slot} A+ 模块`}
+                          title={aPlusSpecs.length <= MIN_A_PLUS_MODULE_COUNT ? `至少保留 ${MIN_A_PLUS_MODULE_COUNT} 张` : '删除模块'}
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${!isPlanning && aPlusSpecs.length > MIN_A_PLUS_MODULE_COUNT ? 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200 dark:hover:bg-red-400/20' : 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-300 dark:border-white/[0.04] dark:bg-white/[0.04] dark:text-gray-600'}`}
+                        >
+                          <TrashIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

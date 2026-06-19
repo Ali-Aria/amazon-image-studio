@@ -110,13 +110,23 @@ export function readClientDevProxyConfig(): DevProxyConfig | null {
 }
 
 export function isApiProxyAvailable(proxyConfig: DevProxyConfig | null = readClientDevProxyConfig()): boolean {
-  return readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true' || Boolean(proxyConfig?.enabled)
+  const availability = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE)
+  if (availability === 'true') return true
+  if (availability === 'false') return false
+  return Boolean(proxyConfig?.enabled)
 }
 
 export function isApiProxyLocked(proxyConfig: DevProxyConfig | null = readClientDevProxyConfig()): boolean {
   return readRuntimeEnv(import.meta.env.VITE_API_PROXY_LOCKED) === 'true' && isApiProxyAvailable(proxyConfig)
 }
 
-export function shouldUseApiProxy(apiProxy: boolean, proxyConfig: DevProxyConfig | null = readClientDevProxyConfig()): boolean {
-  return isApiProxyAvailable(proxyConfig) && (apiProxy || isApiProxyLocked(proxyConfig))
+export function shouldUseApiProxy(
+  apiProxy: boolean,
+  proxyConfig: DevProxyConfig | null = readClientDevProxyConfig(),
+  baseUrl = '',
+): boolean {
+  if (!isApiProxyAvailable(proxyConfig)) return false
+  if (apiProxy || isApiProxyLocked(proxyConfig)) return true
+
+  return Boolean(proxyConfig?.enabled && baseUrl && normalizeBaseUrl(baseUrl) === proxyConfig.target)
 }

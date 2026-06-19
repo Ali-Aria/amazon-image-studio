@@ -3,6 +3,9 @@ import { DEFAULT_PARAMS } from '../types'
 import { DEFAULT_SETTINGS } from './apiProfiles'
 import { callImageApi } from './api'
 
+const RESOLUTION_REQUIREMENT_1024 = 'Technical output requirement (not visible text): expected image resolution 1024x1024 px.'
+const RESOLUTION_REQUIREMENT_2048 = 'Technical output requirement (not visible text): expected image resolution 2048x2048 px.'
+
 describe('callImageApi', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -35,6 +38,27 @@ describe('callImageApi', () => {
       expect(body.input).toBe('Use the following text as the complete prompt. Do not rewrite it:\nprompt')
     },
   )
+
+  it('appends explicit output resolution to the final Images API prompt', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key' },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, size: '2048x2048' },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.prompt).toBe(`prompt\n\n${RESOLUTION_REQUIREMENT_2048}`)
+    expect(body.size).toBe('2048x2048')
+  })
 
   it('routes OpenRouter Images API profiles through Chat Completions image generation', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
@@ -79,7 +103,7 @@ describe('callImageApi', () => {
     const body = JSON.parse(String((init as RequestInit).body))
     expect(body).toMatchObject({
       model: 'google/gemini-2.5-flash-image',
-      messages: [{ role: 'user', content: 'prompt' }],
+      messages: [{ role: 'user', content: `prompt\n\n${RESOLUTION_REQUIREMENT_1024}` }],
       modalities: ['image', 'text'],
       stream: false,
       image_config: { aspect_ratio: '1:1', image_size: '1K' },
@@ -124,7 +148,10 @@ describe('callImageApi', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions')
     const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
     expect(body.messages[0].content).toEqual([
-      { type: 'text', text: 'edit prompt' },
+      {
+        type: 'text',
+        text: `edit prompt\n\nTechnical output requirement (not visible text): expected image resolution 1024x1536 px.`,
+      },
       { type: 'image_url', image_url: { url: 'data:image/png;base64,aW5wdXQ=' } },
     ])
     expect(body.image_config).toEqual({ aspect_ratio: '2:3', image_size: '1K' })

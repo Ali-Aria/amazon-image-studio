@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { buildApiUrl } from './devProxy'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { buildApiUrl, shouldUseApiProxy } from './devProxy'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('buildApiUrl', () => {
   it('uses the same-origin proxy prefix when API proxy is enabled', () => {
@@ -41,5 +45,33 @@ describe('buildApiUrl', () => {
     expect(buildApiUrl('https://api.deepseek.com', 'chat/completions', null, false, { prefixV1: false })).toBe(
       'https://api.deepseek.com/chat/completions',
     )
+  })
+})
+
+describe('shouldUseApiProxy', () => {
+  const proxyConfig = {
+    enabled: true,
+    prefix: '/api-proxy',
+    target: 'http://127.0.0.1:8087/v1',
+    changeOrigin: true,
+    secure: false,
+  }
+
+  it('automatically uses the dev proxy when the configured API URL matches the proxy target', () => {
+    expect(shouldUseApiProxy(false, proxyConfig, 'http://127.0.0.1:8087/v1')).toBe(true)
+  })
+
+  it('does not automatically proxy unrelated API URLs', () => {
+    expect(shouldUseApiProxy(false, proxyConfig, 'https://api.example.com/v1')).toBe(false)
+  })
+
+  it('still honors an explicit API proxy setting', () => {
+    expect(shouldUseApiProxy(true, proxyConfig, 'https://api.example.com/v1')).toBe(true)
+  })
+
+  it('ignores stored API proxy settings when the current deployment disables proxy support', () => {
+    vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'false')
+
+    expect(shouldUseApiProxy(true, proxyConfig, 'http://127.0.0.1:8087/v1')).toBe(false)
   })
 })
