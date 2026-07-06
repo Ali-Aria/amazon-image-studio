@@ -1,6 +1,11 @@
 import type { ApiProfile } from '../types'
 import { DEFAULT_CHAT_MODEL, DEFAULT_RESPONSES_MODEL, isOfficialDeepSeekPlannerProfile } from './apiProfiles'
 import { formatAmazonAPlusReferenceMaterial, formatAmazonListingReferenceMaterial } from './amazonKnowledge'
+import {
+  getAmazonMarketplace,
+  normalizeAmazonMarketplaceId,
+  type AmazonMarketplaceId,
+} from './amazonMarketplaces'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { getApiErrorMessage } from './imageApiShared'
 import type { AmazonPromptDraft } from './amazonPrompt'
@@ -49,6 +54,7 @@ const PRODUCT_REFERENCE_FACTS_ONLY_PLANNER_GUIDE = [
 
 export interface PlannerApiResult {
   mode: AmazonPlannerMode
+  marketplaceId: AmazonMarketplaceId
   parsed: ListingParseResult
   seriesStyleGuide: string
   plans: AmazonImagePlan[]
@@ -83,16 +89,6 @@ const CHINESE_LABEL_SCHEMA = {
   description: 'Concise Simplified Chinese label for UI display.',
 } as const
 
-const ENGLISH_ON_IMAGE_COPY_SCHEMA = {
-  type: 'string',
-  description: 'Short natural US-English on-image copy only, or an empty string. The image model should render it consistently when the final prompt includes it; never include Chinese characters.',
-} as const
-
-const ENGLISH_IMAGE_PROMPT_SCHEMA = {
-  type: 'string',
-  description: 'Professional English image-generation prompt only. Never include Chinese characters.',
-} as const
-
 const PLAN_MARKDOWN_SCHEMA = {
   type: 'string',
   description: 'Detailed Simplified Chinese planning write-up for this slot, similar to a ChatGPT agent response. Markdown is allowed.',
@@ -103,7 +99,29 @@ const NEGATIVE_PROMPT_SCHEMA = {
   description: 'English negative prompt for the image model. Never include Chinese characters.',
 } as const
 
-function createListingPlannerSchema(listingImageCount: number) {
+function getVisibleCopyLanguageRule(marketplaceId?: AmazonMarketplaceId): string {
+  const marketplace = getAmazonMarketplace(marketplaceId)
+  return marketplace.allowsCjkVisibleCopy
+    ? `Visible customer-facing copy inside the prompt must be natural ${marketplace.onImageCopyLanguage} for ${marketplace.domain}; Japanese characters are allowed for visible copy, but do not include Simplified Chinese UI wording.`
+    : `Visible customer-facing copy inside the prompt must be natural ${marketplace.onImageCopyLanguage} for ${marketplace.domain}; never include Chinese or Japanese characters in visible copy.`
+}
+
+function createImagePromptSchema(marketplaceId?: AmazonMarketplaceId) {
+  return {
+    type: 'string',
+    description: `Professional English image-generation prompt. ${getVisibleCopyLanguageRule(marketplaceId)} The overall prompt instructions should remain English for image-model stability.`,
+  } as const
+}
+
+function createAPlusExternalTextSchema(field: 'title' | 'body', marketplaceId?: AmazonMarketplaceId) {
+  const marketplace = getAmazonMarketplace(marketplaceId)
+  return {
+    type: 'string',
+    description: `External A+ ${field} text in natural ${marketplace.copyLanguage} for ${marketplace.domain}, or an empty string when not needed.`,
+  } as const
+}
+
+function createListingPlannerSchema(listingImageCount: number, marketplaceId?: AmazonMarketplaceId) {
   const slots = getAmazonListingImageSlots(listingImageCount)
   return {
     type: 'object',
@@ -126,7 +144,7 @@ function createListingPlannerSchema(listingImageCount: number) {
             slot: { type: 'string', enum: slots },
             label: CHINESE_LABEL_SCHEMA,
             planMarkdown: PLAN_MARKDOWN_SCHEMA,
-            prompt: ENGLISH_IMAGE_PROMPT_SCHEMA,
+            prompt: createImagePromptSchema(marketplaceId),
             negativePrompt: NEGATIVE_PROMPT_SCHEMA,
           },
           required: ['slot', 'label', 'planMarkdown', 'prompt', 'negativePrompt'],
@@ -137,7 +155,7 @@ function createListingPlannerSchema(listingImageCount: number) {
   } as const
 }
 
-function createAPlusPlannerSchema(specs: AmazonAPlusModuleSpec[]) {
+function createAPlusPlannerSchema(specs: AmazonAPlusModuleSpec[], marketplaceId?: AmazonMarketplaceId) {
   return {
     type: 'object',
     additionalProperties: false,
@@ -160,9 +178,9 @@ function createAPlusPlannerSchema(specs: AmazonAPlusModuleSpec[]) {
             label: CHINESE_LABEL_SCHEMA,
             moduleType: { type: 'string', enum: Array.from(new Set(specs.map((spec) => spec.moduleType))) },
             planMarkdown: PLAN_MARKDOWN_SCHEMA,
-            textTitle: { type: 'string' },
-            textBody: { type: 'string' },
-            prompt: ENGLISH_IMAGE_PROMPT_SCHEMA,
+            textTitle: createAPlusExternalTextSchema('title', marketplaceId),
+            textBody: createAPlusExternalTextSchema('body', marketplaceId),
+            prompt: createImagePromptSchema(marketplaceId),
             negativePrompt: NEGATIVE_PROMPT_SCHEMA,
           },
           required: ['slot', 'label', 'moduleType', 'planMarkdown', 'textTitle', 'textBody', 'prompt', 'negativePrompt'],
@@ -392,7 +410,7 @@ function normalizeSeriesStyleGuide(payload: PlannerApiPayload): string {
   return typeof payload.seriesStyleGuide === 'string' ? payload.seriesStyleGuide.trim() : ''
 }
 
-function normalizeListingPlannerApiPayload(payload: PlannerApiPayload, listingImageCount: number): PlannerApiResult {
+function normalizeListingPlannerApiPayload(payload: PlannerApiPayload, listingImageCount: number, marketplaceId: AmazonMarketplaceId): PlannerApiResult {
   const parsed = normalizeParsedListing(payload)
   const seriesStyleGuide = normalizeSeriesStyleGuide(payload)
   const slots = getAmazonListingImageSlots(listingImageCount)
@@ -405,6 +423,7 @@ function normalizeListingPlannerApiPayload(payload: PlannerApiPayload, listingIm
 
   return {
     mode: 'listing',
+    marketplaceId,
     parsed,
     seriesStyleGuide,
     plans,
@@ -440,6 +459,7 @@ function normalizeAPlusPlannerApiPayload(
   aPlusType: APlusContentType,
   tier: SizeTier,
   specs: AmazonAPlusModuleSpec[],
+  marketplaceId: AmazonMarketplaceId,
 ): PlannerApiResult {
   const parsed = normalizeParsedListing(payload)
   const seriesStyleGuide = normalizeSeriesStyleGuide(payload)
@@ -458,6 +478,7 @@ function normalizeAPlusPlannerApiPayload(
 
   return {
     mode: 'aplus',
+    marketplaceId,
     parsed,
     seriesStyleGuide,
     plans: [],
@@ -466,21 +487,40 @@ function normalizeAPlusPlannerApiPayload(
   }
 }
 
-function buildListingPlannerInstructions(baseDraft: AmazonPromptDraft, listingImageCount: number) {
+function buildMarketplaceInstructionBlock(marketplaceId?: AmazonMarketplaceId) {
+  const marketplace = getAmazonMarketplace(marketplaceId)
+  return [
+    `Target marketplace: ${marketplace.label} (${marketplace.domain}, locale ${marketplace.locale}).`,
+    `Customer-facing visible copy must be concise, natural ${marketplace.onImageCopyLanguage}.`,
+    ...marketplace.localGuidance,
+    'Keep image-generation prompt and negativePrompt fields written in English for image-model stability, but quote any visible customer-facing copy in the target marketplace language.',
+  ].join('\n')
+}
+
+function buildFieldLanguageRules(marketplaceId?: AmazonMarketplaceId, options: { includeAPlusExternalText?: boolean } = {}) {
+  const marketplace = getAmazonMarketplace(marketplaceId)
+  const externalTextRule = options.includeAPlusExternalText
+    ? ` textTitle/textBody must be natural ${marketplace.copyLanguage} for ${marketplace.domain} or empty;`
+    : ''
+  return `Field language rules: label and planMarkdown must be Simplified Chinese;${externalTextRule} seriesStyleGuide, prompt, and negativePrompt must be English. Visible customer-facing copy described inside prompt must be ${marketplace.onImageCopyLanguage}.`
+}
+
+function buildListingPlannerInstructions(baseDraft: AmazonPromptDraft, listingImageCount: number, marketplaceId?: AmazonMarketplaceId) {
   const slots = getAmazonListingImageSlots(listingImageCount)
   return [
     'You are an Amazon image-planning agent. The user provides listing copy and optional product reference images.',
+    buildMarketplaceInstructionBlock(marketplaceId),
     `Create a complete visual plan for exactly ${slots.length} Amazon listing image slots: ${slots.join(', ')}.`,
     'The application only fixes the slot count and order. You must decide the strategy, composition, copy approach, visual treatment, prompt content, and negative prompt content.',
     'Use the Amazon reference material below to improve compliance judgment. It is not a fixed slot-by-slot framework, and it must not replace the product facts from the listing and reference images.',
-    formatAmazonListingReferenceMaterial(),
+    formatAmazonListingReferenceMaterial(marketplaceId),
     PRODUCT_REFERENCE_FACTS_ONLY_PLANNER_GUIDE,
     'For each slot, write planMarkdown in Simplified Chinese as a detailed agent-style plan similar to a ChatGPT web response, then write a professional English image prompt and English negative prompt.',
-    'Each image prompt should fully plan the finished Amazon image: composition, product evidence, on-image US-English copy when useful, callouts or information areas when useful, visual hierarchy, and rendering style.',
+    `Each image prompt should fully plan the finished Amazon image: composition, product evidence, on-image ${getAmazonMarketplace(marketplaceId).onImageCopyLanguage} copy when useful, callouts or information areas when useful, visual hierarchy, and rendering style.`,
     'For secondary information images, prefer complete information design with clear hierarchy and useful product evidence; lifestyle or beauty slots should still have purposeful composition and visible product support.',
     'Return one seriesStyleGuide string in English for cross-image product consistency and factual visual continuity. Keep it style-neutral and do not use it to choose the final color palette, typography, background mood, lighting mood, or decorative style.',
     'Do not create, request, or describe separate style reference board images. The application uses built-in preset style reference boards.',
-    'Field language rules: label and planMarkdown must be Simplified Chinese; seriesStyleGuide, prompt, and negativePrompt must be English.',
+    buildFieldLanguageRules(marketplaceId),
     'Do not generate images. Only return JSON matching the schema.',
     baseDraft.category ? `Known category: ${baseDraft.category}` : '',
   ].filter(Boolean).join('\n')
@@ -499,21 +539,23 @@ function getAPlusPlannerTypeName(aPlusType: APlusContentType) {
   }
 }
 
-function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: APlusContentType, specs: AmazonAPlusModuleSpec[]) {
+function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: APlusContentType, specs: AmazonAPlusModuleSpec[], marketplaceId?: AmazonMarketplaceId) {
   const typeLabel = getAPlusPlannerTypeName(aPlusType)
+  const marketplace = getAmazonMarketplace(marketplaceId)
   const mobileGuidance = aPlusType === 'mobile'
-    ? 'For Mobile A+ modules, design every 600x450 image for compact mobile screens: one clear message per module, large product evidence, short mobile-readable US-English copy, and no dense multi-column layouts.'
+    ? `For Mobile A+ modules, design every 600x450 image for compact mobile screens: one clear message per module, large product evidence, short mobile-readable ${marketplace.onImageCopyLanguage} copy, and no dense multi-column layouts.`
     : ''
   return [
     'You are an Amazon A+ Content image-planning agent. The user provides listing copy, optional brand notes, and optional product reference images.',
+    buildMarketplaceInstructionBlock(marketplaceId),
     `Create a ${typeLabel} image module plan. Do not generate images. Only return JSON matching the schema.`,
     `Return exactly ${specs.length} modules in this order: ${specs.map((spec) => `${spec.slot} ${spec.label} ${getAPlusModuleUploadSize(spec)}px`).join('; ')}.`,
     'The application only fixes the module order, module type, upload size, and generation size. You must decide the strategy, composition, copy approach, visual treatment, prompt content, and negative prompt content.',
     'Use the Amazon A+ reference material below to improve compliance judgment. It is not a fixed module creative framework, and it must not replace the product facts from the listing and reference images.',
-    formatAmazonAPlusReferenceMaterial(),
+    formatAmazonAPlusReferenceMaterial(marketplaceId),
     PRODUCT_REFERENCE_FACTS_ONLY_PLANNER_GUIDE,
     'For each module, write planMarkdown in Simplified Chinese as a detailed agent-style plan similar to a ChatGPT web response, then write a professional English image prompt and English negative prompt.',
-    'Each module prompt should fully plan the finished Amazon image: composition, product evidence, on-image US-English copy when useful, callouts or information areas when useful, visual hierarchy, and rendering style.',
+    `Each module prompt should fully plan the finished Amazon image: composition, product evidence, on-image ${marketplace.onImageCopyLanguage} copy when useful, callouts or information areas when useful, visual hierarchy, and rendering style.`,
     'For A+ information modules, prefer complete information design with clear hierarchy and useful product evidence; lifestyle or brand modules should still have purposeful composition and visible product support.',
     mobileGuidance,
     baseDraft.brand
@@ -522,8 +564,8 @@ function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: 
     'Use brand names as text only unless the user provides a real logo reference image. Do not invent logo artwork, standalone trademark/copyright symbols, brand history, authorization claims, websites, contact details, or external links.',
     'Return one seriesStyleGuide string in English for cross-module product consistency and factual visual continuity. Keep it style-neutral and do not use it to choose the final color palette, typography, background mood, lighting mood, or decorative style.',
     'Do not create, request, or describe separate style reference board images. The application uses built-in preset style reference boards.',
-    'For modules that need external A+ text outside the image, write textTitle and textBody in natural US English. Otherwise return empty strings.',
-    'Field language rules: label and planMarkdown must be Simplified Chinese; textTitle/textBody must be English or empty; seriesStyleGuide, prompt, and negativePrompt must be English.',
+    `For modules that need external A+ text outside the image, write textTitle and textBody in natural ${marketplace.copyLanguage}. Otherwise return empty strings.`,
+    buildFieldLanguageRules(marketplaceId, { includeAPlusExternalText: true }),
     baseDraft.category ? `Known category: ${baseDraft.category}` : '',
   ].filter(Boolean).join('\n')
 }
@@ -532,14 +574,14 @@ function buildPlannerInstructions(
   baseDraft: AmazonPromptDraft,
   mode: AmazonPlannerMode,
   aPlusType: APlusContentType,
-  options: { textOnlyReferenceGuard?: boolean; listingImageCount?: number; aPlusModuleSpecs?: AmazonAPlusModuleSpec[] } = {},
+  options: { textOnlyReferenceGuard?: boolean; listingImageCount?: number; aPlusModuleSpecs?: AmazonAPlusModuleSpec[]; marketplaceId?: AmazonMarketplaceId } = {},
 ) {
   const listingImageCount = normalizeListingImageCount(options.listingImageCount)
   const aPlusModuleSpecs = normalizeAPlusModuleSpecs(aPlusType, options.aPlusModuleSpecs)
   return [
     mode === 'aplus'
-    ? buildAPlusPlannerInstructions(baseDraft, aPlusType, aPlusModuleSpecs)
-    : buildListingPlannerInstructions(baseDraft, listingImageCount),
+    ? buildAPlusPlannerInstructions(baseDraft, aPlusType, aPlusModuleSpecs, options.marketplaceId)
+    : buildListingPlannerInstructions(baseDraft, listingImageCount, options.marketplaceId),
     options.textOnlyReferenceGuard ? DEEPSEEK_TEXT_ONLY_PLANNER_GUARD : '',
   ].filter(Boolean).join('\n')
 }
@@ -571,17 +613,19 @@ function buildPlannerInputText(
   listingText: string,
   mode: AmazonPlannerMode,
   aPlusType: APlusContentType,
-  options: { includeReferenceImageInstruction?: boolean; userProductFacts?: string; listingImageCount?: number; aPlusModuleSpecs?: AmazonAPlusModuleSpec[] } = {},
+  options: { includeReferenceImageInstruction?: boolean; userProductFacts?: string; listingImageCount?: number; aPlusModuleSpecs?: AmazonAPlusModuleSpec[]; marketplaceId?: AmazonMarketplaceId } = {},
 ) {
   const referenceImageInstruction = options.includeReferenceImageInstruction
     ? 'If reference images are attached, use them to understand the actual product appearance and included items.'
     : ''
   const userProductFacts = options.userProductFacts?.trim()
+  const marketplace = getAmazonMarketplace(options.marketplaceId)
   if (mode === 'aplus') {
     const specs = normalizeAPlusModuleSpecs(aPlusType, options.aPlusModuleSpecs)
     return [
-      `Parse this Amazon listing copy and produce the ${getAPlusContentTypeLabel(aPlusType)} module plan.`,
+      `Parse this ${marketplace.domain} listing copy and produce the ${getAPlusContentTypeLabel(aPlusType)} module plan for ${marketplace.label}.`,
       'Use the title and bullet points from the pasted text. If a field is uncertain, infer conservatively from the listing.',
+      `Target marketplace language for visible customer-facing copy: ${marketplace.copyLanguage}.`,
       `Use these A+ modules exactly: ${specs.map((spec) => spec.slot).join(', ')}.`,
       referenceImageInstruction,
       userProductFacts,
@@ -592,8 +636,9 @@ function buildPlannerInputText(
 
   const listingImageCount = normalizeListingImageCount(options.listingImageCount)
   return [
-    `Parse this Amazon listing copy and produce the ${listingImageCount}-image visual plan.`,
+    `Parse this ${marketplace.domain} listing copy and produce the ${listingImageCount}-image visual plan for ${marketplace.label}.`,
     'Use the title and bullet points from the pasted text. If a field is uncertain, infer conservatively from the listing.',
+    `Target marketplace language for visible customer-facing copy: ${marketplace.copyLanguage}.`,
     referenceImageInstruction,
     userProductFacts,
     '',
@@ -633,16 +678,18 @@ function buildResponsesPlannerInput(text: string, referenceImageDataUrls: string
 function buildChatPlannerSchemaGuide(
   mode: AmazonPlannerMode,
   aPlusType: APlusContentType,
-  options: { listingImageCount?: number; aPlusModuleSpecs?: AmazonAPlusModuleSpec[] } = {},
+  options: { listingImageCount?: number; aPlusModuleSpecs?: AmazonAPlusModuleSpec[]; marketplaceId?: AmazonMarketplaceId } = {},
 ) {
   const productFields = 'product { title, category, color, material, audience, packageIncludes }'
   const styleFields = 'seriesStyleGuide string'
+  const marketplace = getAmazonMarketplace(options.marketplaceId)
   if (mode === 'aplus') {
     const specs = normalizeAPlusModuleSpecs(aPlusType, options.aPlusModuleSpecs)
     return [
       `Return JSON with: ${productFields}, sellingPoints string[], ${styleFields}, aPlusPlans array.`,
       `aPlusPlans must contain exactly ${specs.length} items in this order: ${specs.map((spec) => spec.slot).join(', ')}.`,
       'Each aPlusPlans item must include: slot, label, moduleType, planMarkdown, textTitle, textBody, prompt, negativePrompt.',
+      `textTitle/textBody and visible on-image copy must use natural ${marketplace.copyLanguage} for ${marketplace.domain}; prompt and negativePrompt should remain English.`,
     ].join('\n')
   }
 
@@ -651,6 +698,7 @@ function buildChatPlannerSchemaGuide(
     `Return JSON with: ${productFields}, sellingPoints string[], ${styleFields}, imagePlans array.`,
     `imagePlans must contain exactly ${slots.length} items in this order: ${slots.join(', ')}.`,
     'Each imagePlans item must include: slot, label, planMarkdown, prompt, negativePrompt.',
+    `Visible on-image copy inside prompt must use natural ${marketplace.copyLanguage} for ${marketplace.domain}; prompt and negativePrompt should remain English.`,
   ].join('\n')
 }
 
@@ -658,7 +706,7 @@ function buildChatPlannerSystemPrompt(
   baseDraft: AmazonPromptDraft,
   mode: AmazonPlannerMode,
   aPlusType: APlusContentType,
-  options: { textOnlyReferenceGuard?: boolean; listingImageCount?: number; aPlusModuleSpecs?: AmazonAPlusModuleSpec[] } = {},
+  options: { textOnlyReferenceGuard?: boolean; listingImageCount?: number; aPlusModuleSpecs?: AmazonAPlusModuleSpec[]; marketplaceId?: AmazonMarketplaceId } = {},
 ) {
   return [
     buildPlannerInstructions(baseDraft, mode, aPlusType, options),
@@ -666,6 +714,7 @@ function buildChatPlannerSystemPrompt(
     buildChatPlannerSchemaGuide(mode, aPlusType, {
       listingImageCount: normalizeListingImageCount(options.listingImageCount),
       aPlusModuleSpecs: options.aPlusModuleSpecs,
+      marketplaceId: options.marketplaceId,
     }),
   ].join('\n\n')
 }
@@ -677,6 +726,7 @@ export async function callAmazonPlannerApi(options: {
   referenceImageDataUrls?: string[]
   model?: string
   mode?: AmazonPlannerMode
+  marketplaceId?: AmazonMarketplaceId
   listingImageCount?: number
   aPlusType?: APlusContentType
   aPlusModuleSpecs?: Array<Partial<AmazonAPlusModuleSpec>>
@@ -685,11 +735,12 @@ export async function callAmazonPlannerApi(options: {
 }): Promise<PlannerApiResult> {
   const model = options.model?.trim() || options.profile.model.trim() || (options.profile.apiMode === 'chat' ? DEFAULT_CHAT_MODEL : DEFAULT_RESPONSES_MODEL)
   const mode = options.mode ?? 'listing'
+  const marketplaceId = normalizeAmazonMarketplaceId(options.marketplaceId)
   const aPlusType = options.aPlusType ?? 'standard-large'
   const listingImageCount = normalizeListingImageCount(options.listingImageCount)
   const aPlusModuleSpecs = normalizeAPlusModuleSpecs(aPlusType, options.aPlusModuleSpecs)
   const aPlusGenerationTier = options.aPlusGenerationTier ?? '2K'
-  const schema = mode === 'aplus' ? createAPlusPlannerSchema(aPlusModuleSpecs) : createListingPlannerSchema(listingImageCount)
+  const schema = mode === 'aplus' ? createAPlusPlannerSchema(aPlusModuleSpecs, marketplaceId) : createListingPlannerSchema(listingImageCount, marketplaceId)
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(options.profile.apiProxy, proxyConfig, options.profile.baseUrl)
   const useChatCompletions = options.profile.apiMode === 'chat'
@@ -699,6 +750,7 @@ export async function callAmazonPlannerApi(options: {
     userProductFacts: isDeepSeekPlannerProfile ? buildUserProductFactsText(options.baseDraft) : '',
     listingImageCount,
     aPlusModuleSpecs,
+    marketplaceId,
   })
   const referenceImageDataUrls = isDeepSeekPlannerProfile
     ? []
@@ -725,6 +777,7 @@ export async function callAmazonPlannerApi(options: {
                 textOnlyReferenceGuard: isDeepSeekPlannerProfile,
                 listingImageCount,
                 aPlusModuleSpecs,
+                marketplaceId,
               }),
             },
             {
@@ -741,6 +794,7 @@ export async function callAmazonPlannerApi(options: {
             textOnlyReferenceGuard: isDeepSeekPlannerProfile,
             listingImageCount,
             aPlusModuleSpecs,
+            marketplaceId,
           }),
           input: buildResponsesPlannerInput(inputText, referenceImageDataUrls),
           text: {
@@ -764,6 +818,6 @@ export async function callAmazonPlannerApi(options: {
   const text = await readPlannerResponseText(response)
   const payload = parsePlannerPayload(text)
   return mode === 'aplus'
-    ? normalizeAPlusPlannerApiPayload(payload, aPlusType, aPlusGenerationTier, aPlusModuleSpecs)
-    : normalizeListingPlannerApiPayload(payload, listingImageCount)
+    ? normalizeAPlusPlannerApiPayload(payload, aPlusType, aPlusGenerationTier, aPlusModuleSpecs, marketplaceId)
+    : normalizeListingPlannerApiPayload(payload, listingImageCount, marketplaceId)
 }

@@ -1,4 +1,11 @@
 import type { HistoryAspectFilter, HistoryWorkflowFilter, TaskAspect, TaskRecord, TaskWorkflow } from '../types'
+import {
+  DEFAULT_AMAZON_MARKETPLACE_ID,
+  getAmazonMarketplaceLabel,
+  getAmazonMarketplaceShortLabel,
+  normalizeAmazonMarketplaceId,
+  type AmazonMarketplaceId,
+} from './amazonMarketplaces'
 
 export const ALL_PRODUCT_FILTER = ''
 export const UNCATEGORIZED_PRODUCT_FILTER = '__uncategorized_product__'
@@ -19,6 +26,7 @@ export interface TaskHistoryCategory {
   aspect: TaskAspect
   amazonSlot: string
   aPlusType: 'standard' | 'standard-large' | 'premium' | 'mobile' | ''
+  marketplaceId: AmazonMarketplaceId
 }
 
 export interface TaskHistoryFilters {
@@ -127,6 +135,7 @@ export function getTaskHistoryCategory(task: TaskRecord): TaskHistoryCategory {
     aspect: getTaskAspect(task),
     amazonSlot: normalizeText(task.category?.amazonSlot ?? ''),
     aPlusType: task.category?.aPlusType ?? '',
+    marketplaceId: normalizeAmazonMarketplaceId(task.category?.marketplaceId ?? DEFAULT_AMAZON_MARKETPLACE_ID),
   }
 }
 
@@ -212,6 +221,9 @@ export function matchesTaskHistoryFilters(task: TaskRecord, filters: TaskHistory
     getAspectLabel(category.aspect),
     category.amazonSlot,
     category.aPlusType,
+    category.marketplaceId,
+    getAmazonMarketplaceLabel(category.marketplaceId),
+    getAmazonMarketplaceShortLabel(category.marketplaceId),
   ].join(' ').toLowerCase()
 
   return searchable.includes(query)

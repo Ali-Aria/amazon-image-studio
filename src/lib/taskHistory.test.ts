@@ -37,6 +37,7 @@ describe('task history categories', () => {
       productTitle: 'Large Folding Umbrella',
       workflow: 'amazon-listing',
       amazonSlot: 'MAIN',
+      marketplaceId: 'us',
       aspect: 'square',
     })
   })
@@ -58,7 +59,26 @@ describe('task history categories', () => {
       workflow: 'amazon-aplus',
       amazonSlot: 'A+S01',
       aPlusType: 'standard',
+      marketplaceId: 'us',
       aspect: 'landscape',
+    })
+  })
+
+  it('preserves explicit Amazon marketplace metadata', () => {
+    const category = getTaskHistoryCategory(task({
+      category: {
+        productTitle: 'Desk Organizer',
+        workflow: 'amazon-listing',
+        amazonSlot: 'PT01',
+        marketplaceId: 'de',
+      },
+    }))
+
+    expect(category).toMatchObject({
+      productTitle: 'Desk Organizer',
+      workflow: 'amazon-listing',
+      amazonSlot: 'PT01',
+      marketplaceId: 'de',
     })
   })
 

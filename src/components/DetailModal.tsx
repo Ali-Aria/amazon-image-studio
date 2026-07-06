@@ -12,6 +12,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { downloadImageIds } from '../lib/downloadImages'
 import { isAgentTaskPromptPending } from '../lib/taskPromptDisplay'
 import { getAspectLabel, getTaskHistoryCategory, getWorkflowLabel } from '../lib/taskHistory'
+import { getAmazonMarketplaceLabel } from '../lib/amazonMarketplaces'
 import { CloseIcon, CodeIcon, CopyIcon, DownloadIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
 
 import ViewportTooltip from './ViewportTooltip'
@@ -295,6 +296,7 @@ export default function DetailModal() {
         ...task.category,
         productTitle: categoryProductInput.trim(),
         workflow: categoryWorkflowInput as NonNullable<TaskRecord['category']>['workflow'],
+        marketplaceId: currentHistoryCategory.marketplaceId,
       },
     })
     showToast('分类已保存', 'success')
@@ -894,6 +896,8 @@ export default function DetailModal() {
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-gray-500 dark:text-gray-400">
                 <span>{getWorkflowLabel(currentHistoryCategory.workflow)}</span>
+                <span>·</span>
+                <span>{getAmazonMarketplaceLabel(currentHistoryCategory.marketplaceId)}</span>
                 <span>·</span>
                 <span>{getAspectLabel(currentHistoryCategory.aspect)}</span>
                 {currentHistoryCategory.amazonSlot && (

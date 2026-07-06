@@ -127,12 +127,14 @@ function createNextSubmitTaskCategory(task: TaskRecord): NonNullable<TaskRecord[
   const productTitle = hasExplicitProductTitle ? task.category?.productTitle?.trim() ?? '' : historyCategory.productTitle
   const amazonSlot = task.category?.amazonSlot?.trim() || historyCategory.amazonSlot
   const aPlusType = task.category?.aPlusType ?? historyCategory.aPlusType
+  const marketplaceId = task.category?.marketplaceId ?? historyCategory.marketplaceId
   const styleReferenceImageId = task.category?.styleReferenceImageId?.trim()
   const category: NonNullable<TaskRecord['category']> = { workflow }
 
   if (hasExplicitProductTitle || productTitle) category.productTitle = productTitle
   if (amazonSlot) category.amazonSlot = amazonSlot
   if (workflow === 'amazon-aplus' && aPlusType) category.aPlusType = aPlusType
+  category.marketplaceId = marketplaceId
   if (styleReferenceImageId && !(workflow === 'amazon-listing' && isAmazonListingMainSlot(amazonSlot))) {
     category.styleReferenceImageId = styleReferenceImageId
   }

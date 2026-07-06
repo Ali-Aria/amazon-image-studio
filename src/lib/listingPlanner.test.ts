@@ -366,6 +366,8 @@ describe('callAmazonPlannerApi', () => {
     expect(init?.signal).toBe(controller.signal)
     const body = JSON.parse(String(init?.body))
     expect(body.instructions).toContain('The application only fixes the slot count and order')
+    expect(body.instructions).toContain('Target marketplace: 美国站 (Amazon.com, locale en-US).')
+    expect(body.instructions).toContain('on-image US-English copy')
     expect(body.instructions).toContain('Amazon Listing reference material for the planner')
     expect(body.instructions).toContain('Use product reference images only to identify product facts')
     expect(body.instructions).toContain('must avoid fixed non-product aesthetics')
@@ -393,8 +395,11 @@ describe('callAmazonPlannerApi', () => {
     expect(body.text.format.schema.properties.imagePlans.items.properties.slot.enum).toEqual(['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06'])
     expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('planMarkdown')
     expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('negativePrompt')
-    expect(body.input[0].content[0].text).toContain('Parse this Amazon listing copy')
+    expect(body.text.format.schema.properties.imagePlans.items.properties.prompt.description).toContain('US-English')
+    expect(body.input[0].content[0].text).toContain('Parse this Amazon.com listing copy')
+    expect(body.input[0].content[0].text).toContain('Target marketplace language for visible customer-facing copy: US English.')
     expect(body.input[0].content[1]).toEqual({ type: 'input_image', image_url: 'data:image/png;base64,ref' })
+    expect(result.marketplaceId).toBe('us')
     expect(result.parsed.title).toBe('AI planned tumbler')
     expect(result.seriesStyleGuide).toContain('cohesive warm')
     expect(result.plans[0]).toMatchObject({
@@ -437,6 +442,40 @@ describe('callAmazonPlannerApi', () => {
     expect(result.plans.map((plan) => plan.slot)).toEqual(slots)
   })
 
+  it('localizes Responses API planning instructions for Japan marketplace visible copy', async () => {
+    const apiPayload = createApiPayload('Japan marketplace tumbler')
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(apiPayload),
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
+      marketplaceId: 'jp',
+    })
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.instructions).toContain('Target marketplace: 日本站 (Amazon.co.jp, locale ja-JP).')
+    expect(body.instructions).toContain('on-image Japanese copy')
+    expect(body.instructions).toContain('Japanese visible text may use Japanese characters')
+    expect(body.text.format.schema.properties.imagePlans.items.properties.prompt.description).toContain('Amazon.co.jp')
+    expect(body.text.format.schema.properties.imagePlans.items.properties.prompt.description).toContain('Japanese')
+    expect(body.input[0].content[0].text).toContain('Parse this Amazon.co.jp listing copy')
+    expect(body.input[0].content[0].text).toContain('Target marketplace language for visible customer-facing copy: Japanese.')
+    expect(result.marketplaceId).toBe('jp')
+    expect(result.plans).toHaveLength(7)
+  })
+
   it('uses Chat Completions planning with multimodal user content when references are present', async () => {
     const apiPayload = createApiPayload('Chat planned tumbler')
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
@@ -472,6 +511,8 @@ describe('callAmazonPlannerApi', () => {
     expect(url).toBe('https://api.example.com/chat/completions')
     const body = JSON.parse(String(init?.body))
     expect(body.messages[0].content).toContain('Return a valid JSON object only')
+    expect(body.messages[0].content).toContain('Target marketplace: 美国站 (Amazon.com, locale en-US).')
+    expect(body.messages[0].content).toContain('Visible on-image copy inside prompt must use natural US English for Amazon.com')
     expect(body.messages[0].content).not.toContain('styleCandidates')
     expect(body.messages[0].content).not.toContain('Because DeepSeek cannot receive or understand reference images')
     expect(body.messages[0].content).toContain('Amazon Listing reference material for the planner')
@@ -485,6 +526,7 @@ describe('callAmazonPlannerApi', () => {
     })
     expect(body.response_format).toEqual({ type: 'json_object' })
     expect(result.parsed.title).toBe('Chat planned tumbler')
+    expect(result.marketplaceId).toBe('us')
     expect(result.plans).toHaveLength(7)
   })
 
@@ -566,7 +608,7 @@ describe('callAmazonPlannerApi', () => {
     expect(body.messages[0].content).toContain('Because DeepSeek cannot receive or understand reference images')
     expect(body.messages[0].content).toContain('Do not invent colors, shapes, structures, accessories, logos, bundle quantity')
     expect(typeof body.messages[1].content).toBe('string')
-    expect(body.messages[1].content).toContain('Parse this Amazon listing copy')
+    expect(body.messages[1].content).toContain('Parse this Amazon.com listing copy')
     expect(body.messages[1].content).toContain('User-provided product facts')
     expect(body.messages[1].content).toContain('- Color: matte black')
     expect(body.messages[1].content).toContain('- Package includes: 1 tumbler, 1 straw')
@@ -687,6 +729,46 @@ describe('callAmazonPlannerApi', () => {
       textTitle: 'Benefit A+S05',
       textBody: 'External A+ copy for A+S05.',
     })
+  })
+
+  it.each([
+    ['de', '德国站', 'Amazon.de', 'German'],
+    ['fr', '法国站', 'Amazon.fr', 'French'],
+    ['it', '意大利站', 'Amazon.it', 'Italian'],
+    ['es', '西班牙站', 'Amazon.es', 'Spanish'],
+  ] as const)('localizes A+ external text instructions for %s marketplace', async (marketplaceId, label, domain, language) => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(createAPlusPayload('A+S', `${language} A+ tumbler`, 'ExampleBrand')),
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: { ...DEFAULT_AMAZON_PROMPT_DRAFT, brand: 'ExampleBrand' },
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
+      mode: 'aplus',
+      aPlusType: 'standard',
+      marketplaceId,
+    })
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.instructions).toContain(`Target marketplace: ${label} (${domain}, locale`)
+    expect(body.instructions).toContain(`on-image ${language} copy`)
+    expect(body.instructions).toContain(`write textTitle and textBody in natural ${language}`)
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties.textTitle.description).toContain(`natural ${language}`)
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties.textBody.description).toContain(domain)
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties.prompt.description).toContain(language)
+    expect(body.input[0].content[0].text).toContain(`Parse this ${domain} listing copy`)
+    expect(body.input[0].content[0].text).toContain(`Target marketplace language for visible customer-facing copy: ${language}.`)
+    expect(result.marketplaceId).toBe(marketplaceId)
   })
 
   it('uses custom A+ module specs in schema, prompts, chat guide, and result validation', async () => {

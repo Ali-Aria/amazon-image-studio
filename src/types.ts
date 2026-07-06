@@ -1,3 +1,5 @@
+import type { AmazonMarketplaceId } from './lib/amazonMarketplaces'
+
 // ===== 设置 =====
 
 export type ApiMode = 'images' | 'responses' | 'chat'
@@ -216,6 +218,7 @@ export interface TaskRecord {
     workflow?: TaskWorkflow
     amazonSlot?: string
     aPlusType?: 'standard' | 'standard-large' | 'premium' | 'mobile'
+    marketplaceId?: AmazonMarketplaceId
     styleReferenceImageId?: string
   }
 }
@@ -314,6 +317,7 @@ export interface AmazonPlannerSession {
   id: string
   title: string
   mode: 'listing' | 'aplus'
+  marketplaceId?: AmazonMarketplaceId
   aPlusType: 'standard' | 'standard-large' | 'premium' | 'mobile'
   resolution: '2k' | '4k'
   listingImageCount?: number

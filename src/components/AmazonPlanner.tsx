@@ -38,6 +38,14 @@ import {
 } from '../lib/listingPlanner'
 import { callAmazonPlannerApi, type PlannerApiResult } from '../lib/listingPlannerApi'
 import { deleteAmazonPlannerSession, getAllAmazonPlannerSessions, putAmazonPlannerSession } from '../lib/db'
+import {
+  AMAZON_MARKETPLACES,
+  DEFAULT_AMAZON_MARKETPLACE_ID,
+  getAmazonMarketplace,
+  getAmazonMarketplaceLabel,
+  normalizeAmazonMarketplaceId,
+  type AmazonMarketplaceId,
+} from '../lib/amazonMarketplaces'
 import { prepareReferenceImagePayload, type PlannerReferenceImagePayload } from '../lib/referenceImagePayload'
 import {
   DEFAULT_STYLE_PRESET_ID,
@@ -124,6 +132,10 @@ function getPlannerSessionTitle(draft: AmazonPromptDraft, listingText: string) {
 function getSessionListingImageCount(session: AmazonPlannerSession) {
   if (session.listingImageCount != null) return normalizeListingImageCount(session.listingImageCount)
   return normalizeListingImageCount(session.imagePlans.length || DEFAULT_LISTING_IMAGE_COUNT)
+}
+
+function getSessionMarketplaceId(session: AmazonPlannerSession): AmazonMarketplaceId {
+  return normalizeAmazonMarketplaceId(session.marketplaceId)
 }
 
 function getSessionAPlusModuleSpecsByType(session: AmazonPlannerSession): APlusModuleSpecsByType {
@@ -277,10 +289,16 @@ function getAmazonAPlusComplianceChecks(
   draft: AmazonPromptDraft,
   plan: AmazonAPlusPlan | null,
   aPlusType: APlusContentType,
+  marketplaceId: AmazonMarketplaceId,
   referenceImageCount: number,
   hasStyleReference: boolean,
 ): Array<{ label: string; status: ComplianceStatus; detail: string }> {
   return [
+    {
+      label: '目标站点',
+      status: 'ready',
+      detail: getAmazonMarketplaceLabel(marketplaceId),
+    },
     {
       label: '商品名称',
       status: draft.productTitle.trim() ? 'ready' : 'missing',
@@ -312,11 +330,17 @@ function getAmazonAPlusComplianceChecks(
 function getAmazonListingPlannerChecks(
   draft: AmazonPromptDraft,
   size: string,
+  marketplaceId: AmazonMarketplaceId,
   referenceImageCount: number,
   hasStyleReference: boolean,
   styleReferenceRequired: boolean,
 ): Array<{ label: string; status: ComplianceStatus; detail: string }> {
   return [
+    {
+      label: '目标站点',
+      status: 'ready',
+      detail: getAmazonMarketplaceLabel(marketplaceId),
+    },
     {
       label: '商品名称',
       status: draft.productTitle.trim() ? 'ready' : 'missing',
@@ -364,6 +388,7 @@ export default function AmazonPlanner() {
   const [resolution, setResolution] = useState<'2k' | '4k'>('2k')
   const [listingImageCount, setListingImageCount] = useState(DEFAULT_LISTING_IMAGE_COUNT)
   const [plannerMode, setPlannerMode] = useState<AmazonPlannerMode>('listing')
+  const [marketplaceId, setMarketplaceId] = useState<AmazonMarketplaceId>(DEFAULT_AMAZON_MARKETPLACE_ID)
   const [aPlusType, setAPlusType] = useState<APlusContentType>('standard-large')
   const [aPlusModuleSpecsByType, setAPlusModuleSpecsByType] = useState<APlusModuleSpecsByType>({})
   const [listingText, setListingText] = useState('')
@@ -400,6 +425,7 @@ export default function AmazonPlanner() {
   const [actionProgress, setActionProgress] = useState<PlannerActionProgressMap>({})
   const [mobileActionDock, setMobileActionDock] = useState<MobileActionDock>(null)
   const resolutionTier = resolution === '4k' ? '4K' : '2K'
+  const marketplace = useMemo(() => getAmazonMarketplace(marketplaceId), [marketplaceId])
   const listingSlotRange = formatAmazonListingSlotRange(listingImageCount)
   const aPlusSpecs = useMemo(
     () => normalizeAPlusModuleSpecs(aPlusType, aPlusModuleSpecsByType[aPlusType]),
@@ -435,6 +461,7 @@ export default function AmazonPlanner() {
       seriesStyleGuide: activeSeriesStyleGuide,
       styleReferenceAttached: usesStyleReferenceForActivePlan,
       styleDensityMode,
+      marketplaceId,
       selectedVisualStyle: usesStyleReferenceForActivePlan ? selectedVisualStyle : null,
     }) : ''
     : selectedPlan ? buildAmazonPlanPrompt({
@@ -442,6 +469,7 @@ export default function AmazonPlanner() {
       seriesStyleGuide: isMainListingPlan ? null : activeSeriesStyleGuide,
       styleReferenceAttached: usesStyleReferenceForActivePlan,
       styleDensityMode,
+      marketplaceId,
       selectedVisualStyle: usesStyleReferenceForActivePlan ? selectedVisualStyle : null,
     }) : ''
   const activePlanMarkdown = plannerMode === 'aplus' ? selectedAPlusPlan?.planMarkdown ?? '' : selectedPlan?.planMarkdown ?? ''
@@ -449,7 +477,7 @@ export default function AmazonPlanner() {
     ? [
         activePlanMarkdown,
         '',
-        '英文生图提示词 Prompt',
+        `英文生图提示词 Prompt / ${marketplace.copyLanguage}可见文案`,
         activePrompt,
       ].join('\n')
     : activePrompt
@@ -555,8 +583,8 @@ export default function AmazonPlanner() {
   const planListGuideActive = guideState.target === 'plan-list'
   const actionBarGuideActive = guideState.target === 'action-bar'
   const checks = plannerMode === 'aplus'
-    ? getAmazonAPlusComplianceChecks(draft, selectedAPlusPlan, aPlusType, inputImages.length, hasStyleReference)
-    : getAmazonListingPlannerChecks(draft, targetSize, inputImages.length, hasStyleReference, styleReferenceRequired)
+    ? getAmazonAPlusComplianceChecks(draft, selectedAPlusPlan, aPlusType, marketplaceId, inputImages.length, hasStyleReference)
+    : getAmazonListingPlannerChecks(draft, targetSize, marketplaceId, inputImages.length, hasStyleReference, styleReferenceRequired)
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
 
   useEffect(() => {
@@ -631,6 +659,7 @@ export default function AmazonPlanner() {
       id: targetSessionId ?? createPlannerSessionId(),
       title: overrides.title ?? getPlannerSessionTitle(snapshotDraft, snapshotListingText),
       mode: overrides.mode ?? plannerMode,
+      marketplaceId: overrides.marketplaceId ?? marketplaceId,
       aPlusType: overrides.aPlusType ?? aPlusType,
       resolution: overrides.resolution ?? resolution,
       listingImageCount: overrides.listingImageCount ?? listingImageCount,
@@ -713,6 +742,7 @@ export default function AmazonPlanner() {
         workflow: plannerMode === 'aplus' ? 'amazon-aplus' : 'amazon-listing',
         amazonSlot: plannerMode === 'aplus' ? selectedAPlusPlan?.slot : selectedPlan?.slot,
         ...(plannerMode === 'aplus' ? { aPlusType } : {}),
+        marketplaceId,
         ...(usesStyleReferenceForActivePlan && selectedStyleImage?.imageId ? { styleReferenceImageId: selectedStyleImage.imageId } : {}),
       },
     })
@@ -1019,6 +1049,7 @@ export default function AmazonPlanner() {
   }
 
   const applyPlannerResult = (result: PlannerApiResult, sourceLabel: string) => {
+    const resultMarketplaceId = normalizeAmazonMarketplaceId(result.marketplaceId)
     const firstPlan = result.plans[0]
     const nextDraft = {
       ...draft,
@@ -1037,6 +1068,7 @@ export default function AmazonPlanner() {
     const nextSelectedAPlusPlanIndex = result.mode === 'aplus' && result.aPlusPlans.length ? 0 : null
 
     setDraft(nextDraft)
+    setMarketplaceId(resultMarketplaceId)
     if (result.mode === 'aplus') {
       setAPlusPlans(nextAPlusPlans)
       setImagePlans([])
@@ -1058,6 +1090,7 @@ export default function AmazonPlanner() {
     void savePlannerSession({
       id: createPlannerSessionId(),
       mode: result.mode,
+      marketplaceId: resultMarketplaceId,
       listingImageCount,
       aPlusModuleSpecs: getAPlusModuleSpecsForSession(aPlusModuleSpecsByType),
       draft: toSessionDraft(nextDraft),
@@ -1124,6 +1157,7 @@ export default function AmazonPlanner() {
     setIsPlanning(true)
     setPlannerError('')
     try {
+      const currentMarketplaceId = marketplaceId
       const referencePayload = await prepareReferencePayloadForRequest(inputImages.map((image) => image.dataUrl), controller.signal)
       const result = await callAmazonPlannerApi({
         listingText,
@@ -1131,6 +1165,7 @@ export default function AmazonPlanner() {
         profile: plannerProfile,
         referenceImageDataUrls: referencePayload.dataUrls,
         mode: plannerMode,
+        marketplaceId: currentMarketplaceId,
         listingImageCount,
         aPlusType,
         aPlusModuleSpecs: aPlusSpecs,
@@ -1218,6 +1253,28 @@ export default function AmazonPlanner() {
     }
   }
 
+  const changeMarketplaceId = (value: string) => {
+    const nextMarketplaceId = normalizeAmazonMarketplaceId(value)
+    if (nextMarketplaceId === marketplaceId) return
+    const clearedStyleGuides = { listing: '', aplus: '' }
+    setMarketplaceId(nextMarketplaceId)
+    setImagePlans([])
+    setAPlusPlans([])
+    setSeriesStyleGuides(clearedStyleGuides)
+    setSelectedPlanIndex(null)
+    setSelectedAPlusPlanIndex(null)
+    setPlannerError('')
+    setActionProgress({})
+    updateCurrentPlannerSession({
+      marketplaceId: nextMarketplaceId,
+      seriesStyleGuides: clearedStyleGuides,
+      imagePlans: [],
+      aPlusPlans: [],
+      selectedPlanIndex: null,
+      selectedAPlusPlanIndex: null,
+    })
+  }
+
   const changeListingImageCount = (value: string) => {
     const nextCount = normalizeListingImageCount(value)
     setListingImageCount(nextCount)
@@ -1261,6 +1318,7 @@ export default function AmazonPlanner() {
 
   const clearListingPlan = () => {
     setListingText('')
+    setMarketplaceId(DEFAULT_AMAZON_MARKETPLACE_ID)
     setListingImageCount(DEFAULT_LISTING_IMAGE_COUNT)
     setAPlusModuleSpecsByType({})
     setImagePlans([])
@@ -1387,7 +1445,9 @@ export default function AmazonPlanner() {
     }
 
     const restoredAPlusModuleSpecsByType = getSessionAPlusModuleSpecsByType(session)
+    const restoredMarketplaceId = getSessionMarketplaceId(session)
     setPlannerMode(session.mode)
+    setMarketplaceId(restoredMarketplaceId)
     setAPlusType(session.aPlusType)
     setResolution(session.resolution)
     setListingImageCount(getSessionListingImageCount(session))
@@ -1411,6 +1471,7 @@ export default function AmazonPlanner() {
     setActionProgress({})
     const restoredSession = {
       ...session,
+      marketplaceId: restoredMarketplaceId,
       listingImageCount: getSessionListingImageCount(session),
       aPlusModuleSpecs: getAPlusModuleSpecsForSession(restoredAPlusModuleSpecsByType),
       selectedStylePresetId: restoredStyleReference ? restoredStyleReference.presetId : nextStylePresetId,
@@ -1535,6 +1596,18 @@ export default function AmazonPlanner() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-300">
+              <span className="text-xs text-gray-400 dark:text-gray-500">目标站点</span>
+              <select
+                value={marketplaceId}
+                onChange={(event) => changeMarketplaceId(event.target.value)}
+                className="h-7 rounded-md border border-gray-200 bg-gray-50 px-2 text-sm font-semibold text-gray-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-gray-100"
+              >
+                {AMAZON_MARKETPLACES.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+            </label>
             {plannerMode === 'listing' && (
               <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-300">
                 <span className="text-xs text-gray-400 dark:text-gray-500">图片数</span>
@@ -1603,6 +1676,8 @@ export default function AmazonPlanner() {
                         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
                           <span>{session.mode === 'aplus' ? 'A+ 图' : 'Listing 图'}</span>
                           <span>·</span>
+                          <span>{getAmazonMarketplaceLabel(getSessionMarketplaceId(session))}</span>
+                          <span>·</span>
                           <span>{session.mode === 'aplus' ? getAPlusContentTypeLabel(session.aPlusType) : `${session.imagePlans.length} 张`}</span>
                           <span>·</span>
                           <span>{formatPlannerSessionTime(session.updatedAt)}</span>
@@ -1657,8 +1732,8 @@ export default function AmazonPlanner() {
                 </div>
                 <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                   {plannerMode === 'aplus'
-                    ? '粘贴标题、五点描述或品牌说明，生成普通A+ / 标准A+ / 高级A+ / 手机A+模块编排和英文提示词。'
-                    : `粘贴标题、五点描述或产品说明，生成 ${listingSlotRange} 的逐张方案和英文提示词。`}
+                    ? `面向${marketplace.label}，生成普通A+ / 标准A+ / 高级A+ / 手机A+模块编排、英文生图提示词和${marketplace.copyLanguage}文案。`
+                    : `面向${marketplace.label}，生成 ${listingSlotRange} 的逐张方案、英文生图提示词和${marketplace.copyLanguage}图片文案。`}
                 </div>
               </div>
               <div className="rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">

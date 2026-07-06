@@ -530,6 +530,7 @@ describe('mask draft lifecycle in store actions', () => {
         productTitle: 'Large Folding Umbrella',
         workflow: 'amazon-listing',
         amazonSlot: 'PT02',
+        marketplaceId: 'jp',
       },
     }))
 
@@ -541,6 +542,7 @@ describe('mask draft lifecycle in store actions', () => {
       productTitle: 'Large Folding Umbrella',
       workflow: 'amazon-listing',
       amazonSlot: 'PT02',
+      marketplaceId: 'jp',
     })
     expect(state.pendingTaskCategory).toBeNull()
   })
