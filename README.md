@@ -256,6 +256,8 @@ stop-amazon-image-studio.bat
 
 OpenRouter 生图模型不提供 OpenAI `/images/generations` 路径，应用会自动把 `https://openrouter.ai/api/v1` 的生图请求转到 `/chat/completions` 并发送 `modalities`。OpenRouter 示例：API URL 填 `https://openrouter.ai/api/v1`，模型填支持图片输出的模型，例如 `google/gemini-2.5-flash-image`；API 接口选择 `Images API` 或 `Chat Completions` 都可以。遮罩编辑仍需使用支持 `/images/edits` 的接口。
 
+流式传输功能已移除。部分反代或网关在流式生图时会返回 `upstream did not return image output` 等错误，当前版本所有生图请求都会按非流式方式发送；旧分享链接中的 `streamImages` / `streamPartialImages` 参数会被忽略。
+
 ### 2. AI 策划配置
 
 用于根据 Listing 生成 `MAIN + PT01...` 或 A+ 模块图片策划。
@@ -370,6 +372,8 @@ stop-amazon-image-studio.bat
 检查当前生图配置是否填写了正确的 API URL、API Key、模型和接口类型。生成图片建议使用 `Images API (/v1/images)` + `gpt-image-2`。
 
 如果 OpenRouter 报 404，通常是旧版本请求到了 `/images/generations`。请更新后使用 `https://openrouter.ai/api/v1` 和带 `image` 输出能力的模型；OpenRouter 的图片生成实际走 `/chat/completions`。
+
+如果反代返回 `upstream did not return image output`，通常是上游或网关没有返回可解析的图片结果。当前版本已移除流式传输入口，仍出现该错误时优先检查反代服务、上游账号和模型是否支持当前生图接口。
 
 ## 构建
 
