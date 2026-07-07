@@ -107,14 +107,12 @@ describe('URL settings params', () => {
     expect(next.activeProfileId).toBe(existingProfile.id)
   })
 
-  it('creates a separate profile when URL streaming options differ', () => {
+  it('ignores deprecated URL streaming options when matching profiles', () => {
     const existingProfile = createDefaultOpenAIProfile({
       id: 'existing-openai',
       name: 'Existing OpenAI',
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'test-key',
-      streamImages: true,
-      streamPartialImages: 0,
     })
     const current = normalizeSettings({
       ...DEFAULT_SETTINGS,
@@ -127,14 +125,14 @@ describe('URL settings params', () => {
     })
     const activeProfile = next.profiles.find((profile) => profile.id === next.activeProfileId)
 
-    expect(next.profiles).toHaveLength(3)
-    expect(next.activeProfileId).not.toBe(existingProfile.id)
+    expect(next.profiles).toHaveLength(2)
+    expect(next.activeProfileId).toBe(existingProfile.id)
     expect(activeProfile).toMatchObject({
       provider: 'openai',
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'test-key',
-      streamImages: true,
-      streamPartialImages: 3,
+      streamImages: false,
+      streamPartialImages: 1,
     })
   })
 

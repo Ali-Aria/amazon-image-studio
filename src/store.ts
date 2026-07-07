@@ -20,7 +20,7 @@ import type {
   ResponsesOutputItem,
 } from './types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_PARAMS } from './types'
-import { canApiProfileGenerateImages, DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
+import { canApiProfileGenerateImages, DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, isImageStreamingEnabled, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -179,18 +179,10 @@ function isErrorToastTitle(title: string): boolean {
 
 export type SettingsTab = 'general' | 'agent' | 'api' | 'data' | 'about'
 
-const TIMEOUT_STREAMING_HINT = '也可尝试打开「流式传输」，并提高「请求中间步骤图像数」来维持连接。'
-const TIMEOUT_PARTIAL_IMAGES_ZERO_HINT = '官方流式接口不发送心跳，当前「请求中间步骤图像数」为 0，连接可能因无数据传输而断开。建议提高到 2 或 3。'
-const TIMEOUT_PARTIAL_IMAGES_LOW_HINT = '也可尝试提高「请求中间步骤图像数」来维持连接，避免长时间无数据传输导致断开。'
-
 type TimeoutStreamingHintProfile = Pick<ApiProfile, 'provider' | 'streamImages' | 'streamPartialImages'>
 
-function getTimeoutStreamingHint(profile?: TimeoutStreamingHintProfile | null) {
-  if (profile?.provider !== 'openai') return ''
-  const partialImages = profile.streamPartialImages ?? DEFAULT_SETTINGS.streamPartialImages ?? 0
-  if (profile.streamImages !== true) return TIMEOUT_STREAMING_HINT
-  if (partialImages === 0) return TIMEOUT_PARTIAL_IMAGES_ZERO_HINT
-  return partialImages < 3 ? TIMEOUT_PARTIAL_IMAGES_LOW_HINT : ''
+function getTimeoutStreamingHint(_profile?: TimeoutStreamingHintProfile | null) {
+  return ''
 }
 
 function createOpenAITimeoutError(timeoutSeconds: number, profile?: TimeoutStreamingHintProfile | null) {
@@ -1068,8 +1060,8 @@ export const useStore = create<AppState>()(
                   apiMode: incoming.apiMode === 'images' || incoming.apiMode === 'responses' || incoming.apiMode === 'chat' ? incoming.apiMode : profile.apiMode,
                   codexCli: incoming.codexCli ?? profile.codexCli,
                   apiProxy: incoming.apiProxy ?? profile.apiProxy,
-                  streamImages: incoming.streamImages ?? profile.streamImages,
-                  streamPartialImages: incoming.streamPartialImages ?? profile.streamPartialImages,
+                  streamImages: false,
+                  streamPartialImages: DEFAULT_SETTINGS.streamPartialImages,
                 }
               : profile,
           )
@@ -2988,7 +2980,7 @@ async function executeAgentRound(
       ? conversation.messages.find((message) => message.id === round.assistantMessageId) ?? null
       : conversation.messages.find((message) => message.roundId === roundId && message.role === 'assistant') ?? null
     const assistantMessageId = existingAssistantMessage?.id ?? genId()
-    const shouldStreamAssistantMessage = activeProfile.streamImages === true
+    const shouldStreamAssistantMessage = isImageStreamingEnabled(activeProfile)
     const streamingTaskIds: string[] = []
     const taskIdByToolCallId = new Map<string, string>()
 
@@ -3735,8 +3727,8 @@ async function executeTask(taskId: string) {
       const hintProfile = profile ?? {
         provider: latestTask.apiProvider ?? activeProfile.provider,
         apiMode: settings.apiMode,
-        streamImages: activeProfile.streamImages,
-        streamPartialImages: activeProfile.streamPartialImages,
+        streamImages: false,
+        streamPartialImages: DEFAULT_SETTINGS.streamPartialImages,
       }
       const networkErrorHint = getApiRequestNetworkErrorHint(err, latestTask.createdAt, usesApiProxy, hintProfile)
       if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {

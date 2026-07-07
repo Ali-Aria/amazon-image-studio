@@ -292,10 +292,14 @@ export function createDefaultOpenAIProfile(overrides: Partial<ApiProfile> = {}):
     apiMode: 'images',
     codexCli: false,
     apiProxy: DEFAULT_OPENAI_API_PROXY,
+    ...overrides,
     streamImages: false,
     streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
-    ...overrides,
   }
+}
+
+export function isImageStreamingEnabled(_profile?: Pick<ApiProfile, 'streamImages'> | null): boolean {
+  return false
 }
 
 export function createDefaultImageProfile(overrides: Partial<ApiProfile> = {}): ApiProfile {
@@ -330,9 +334,9 @@ export function createDefaultFalProfile(overrides: Partial<ApiProfile> = {}): Ap
     apiMode: 'images',
     codexCli: false,
     apiProxy: false,
+    ...overrides,
     streamImages: false,
     streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
-    ...overrides,
   }
 }
 
@@ -346,8 +350,8 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
       codexCli: profile.codexCli,
       apiProxy: profile.apiProxy,
       responseFormatB64Json: profile.responseFormatB64Json,
-      streamImages: profile.streamImages,
-      streamPartialImages: profile.streamPartialImages,
+      streamImages: false,
+      streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
     },
   }
   const savedDraft = providerDrafts[provider]
@@ -363,7 +367,7 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
       apiProxy: false,
       responseFormatB64Json: savedDraft?.responseFormatB64Json,
       streamImages: false,
-      streamPartialImages: savedDraft?.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES,
+      streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
       providerDrafts,
     }
   }
@@ -380,7 +384,7 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
       apiProxy: false,
       responseFormatB64Json: savedDraft?.responseFormatB64Json,
       streamImages: false,
-      streamPartialImages: savedDraft?.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES,
+      streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
       providerDrafts,
     }
   }
@@ -394,8 +398,8 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
     codexCli: savedDraft?.codexCli ?? profile.codexCli,
     apiProxy: savedDraft?.apiProxy ?? DEFAULT_OPENAI_API_PROXY,
     responseFormatB64Json: savedDraft?.responseFormatB64Json,
-    streamImages: savedDraft?.streamImages ?? (profile.provider === 'openai' ? profile.streamImages : true),
-    streamPartialImages: savedDraft?.streamPartialImages ?? (profile.provider === 'openai' ? profile.streamPartialImages : DEFAULT_STREAM_PARTIAL_IMAGES),
+    streamImages: false,
+    streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
     providerDrafts,
   }
 }
@@ -418,8 +422,8 @@ function normalizeProviderDraft(input: unknown, provider: ApiProvider, customPro
     codexCli: typeof input.codexCli === 'boolean' ? input.codexCli : fallback.codexCli,
     apiProxy: typeof input.apiProxy === 'boolean' ? input.apiProxy : fallback.apiProxy,
     responseFormatB64Json: input.responseFormatB64Json === true ? true : undefined,
-    streamImages: typeof input.streamImages === 'boolean' ? input.streamImages : fallback.streamImages,
-    streamPartialImages: normalizeStreamPartialImages(input.streamPartialImages, fallback.streamPartialImages),
+    streamImages: false,
+    streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
   }
 }
 
@@ -628,8 +632,8 @@ function splitSingleDefaultOpenAIProfile(profile: ApiProfile): ApiProfile[] | nu
     codexCli: profile.codexCli,
     apiProxy: profile.apiProxy,
     responseFormatB64Json: profile.responseFormatB64Json,
-    streamImages: profile.streamImages,
-    streamPartialImages: profile.streamPartialImages,
+    streamImages: false,
+    streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
   }
 
   if (isAmazonPlannerProfile(profile)) {
@@ -710,8 +714,8 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     codexCli: Boolean(record.codexCli),
     apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : defaults.apiProxy,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
-    streamImages: typeof record.streamImages === 'boolean' ? record.streamImages : defaults.streamImages,
-    streamPartialImages: normalizeStreamPartialImages(record.streamPartialImages, defaults.streamPartialImages),
+    streamImages: false,
+    streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
     providerDrafts: normalizeProviderDrafts(record.providerDrafts, customProviderIds),
   }
 }
@@ -743,8 +747,8 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown, options
     codexCli: Boolean(record.codexCli),
     apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : DEFAULT_OPENAI_API_PROXY,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
-    streamImages: typeof record.streamImages === 'boolean' ? record.streamImages : true,
-    streamPartialImages: normalizeStreamPartialImages(record.streamPartialImages),
+    streamImages: false,
+    streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
   })
   const hasExplicitProfiles = Array.isArray(record.profiles) && record.profiles.length > 0
   let profiles = normalizeDefaultProfileSet(
@@ -785,8 +789,8 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown, options
     apiMode: active.apiMode,
     codexCli: active.codexCli,
     apiProxy: active.apiProxy,
-    streamImages: active.streamImages,
-    streamPartialImages: active.streamPartialImages,
+    streamImages: false,
+    streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
     customProviders,
     providerOrder: Array.isArray(record.providerOrder) ? record.providerOrder.map(String) : undefined,
     clearInputAfterSubmit: typeof record.clearInputAfterSubmit === 'boolean' ? record.clearInputAfterSubmit : false,
@@ -904,8 +908,8 @@ export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): A
     apiMode: record.apiMode === 'images' || record.apiMode === 'responses' || record.apiMode === 'chat' ? record.apiMode : profile.apiMode,
     codexCli: typeof record.codexCli === 'boolean' ? record.codexCli : profile.codexCli,
     apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : profile.apiProxy,
-    streamImages: typeof record.streamImages === 'boolean' ? record.streamImages : profile.streamImages,
-    streamPartialImages: normalizeStreamPartialImages(record.streamPartialImages, profile.streamPartialImages),
+    streamImages: false,
+    streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
   }
 }
 

@@ -27,7 +27,6 @@ import {
   mergeImportedSettings,
   normalizeCustomProviderDefinition,
   normalizeSettings,
-  normalizeStreamPartialImages,
   switchApiProfileProvider,
 } from '../lib/apiProfiles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
@@ -175,9 +174,7 @@ function isPristineNewOpenAIProfile(profile: ApiProfile) {
     profile.timeout === DEFAULT_SETTINGS.timeout &&
     profile.apiMode === 'images' &&
     profile.codexCli === false &&
-    profile.apiProxy === defaultProfile.apiProxy &&
-    profile.streamImages === defaultProfile.streamImages &&
-    profile.streamPartialImages === defaultProfile.streamPartialImages
+    profile.apiProxy === defaultProfile.apiProxy
 }
 
 function getImportedProfileFromMergedSettings(
@@ -531,8 +528,8 @@ export default function SettingsModal() {
         timeout: Number(profile.timeout) || DEFAULT_SETTINGS.timeout,
         apiProxy: profile.provider === 'openai' && apiProxyAvailable ? (apiProxyLocked || profile.apiProxy) : false,
         codexCli: profile.provider === 'openai' ? profile.codexCli : false,
-        streamImages: profile.provider === 'openai' ? profile.streamImages : false,
-        streamPartialImages: profile.provider === 'openai' ? normalizeStreamPartialImages(profile.streamPartialImages) : DEFAULT_STREAM_PARTIAL_IMAGES,
+        streamImages: false,
+        streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
       }
     })
     const fallbackProfile = createDefaultOpenAIProfile({ id: newId('openai') })
@@ -549,8 +546,8 @@ export default function SettingsModal() {
       apiMode: nextActiveProfile.apiMode,
       codexCli: nextActiveProfile.codexCli,
       apiProxy: nextActiveProfile.apiProxy,
-      streamImages: nextActiveProfile.streamImages,
-      streamPartialImages: nextActiveProfile.streamPartialImages,
+      streamImages: false,
+      streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
       profiles: normalizedProfiles.length ? normalizedProfiles : [fallbackProfile],
       activeProfileId: nextActiveProfileId,
     })
@@ -583,8 +580,6 @@ export default function SettingsModal() {
       const model = profile.model.trim() || getDefaultModelForMode(profile.apiMode)
       url.searchParams.set('model', !options.includeApiKey && options.useNewApiModel ? '{model}' : model)
       if (profile.codexCli) url.searchParams.set('codexCli', 'true')
-      if (profile.streamImages !== DEFAULT_SETTINGS.streamImages) url.searchParams.set('streamImages', String(Boolean(profile.streamImages)))
-      if (profile.streamPartialImages !== DEFAULT_STREAM_PARTIAL_IMAGES) url.searchParams.set('streamPartialImages', String(normalizeStreamPartialImages(profile.streamPartialImages)))
       if (draft.apiSetupMode === 'single-connection') {
         url.searchParams.set('apiSetupMode', 'single-connection')
         url.searchParams.set('plannerApiMode', plannerApiMode)
@@ -1767,49 +1762,7 @@ export default function SettingsModal() {
                 </div>
               </label>
 
-              {/* 8. 流式传输 + 中间步骤图像数 */}
-              {activeProfile.provider === 'openai' && (
-                <div className="block space-y-3">
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between gap-3">
-                      <span className="block text-sm text-gray-600 dark:text-gray-300">流式传输</span>
-                      <button
-                        type="button"
-                        onClick={() => updateActiveProfile({ streamImages: !activeProfile.streamImages }, true)}
-                        className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.streamImages ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
-                        role="switch"
-                        aria-checked={!!activeProfile.streamImages}
-                        aria-label="流式传输"
-                      >
-                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.streamImages ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
-                      </button>
-                    </div>
-                    <div data-selectable-text className="text-xs text-gray-500 dark:text-gray-500">
-                      开启后请求以流式传输，并非所有服务商和网关都支持此功能。官方接口在流式模式下不发送心跳，需要配合请求中间步骤图像来维持连接，避免超时断开。官方接口仅支持单图流式传输，因此数量大于 1 时会将多图生成拆分为并发单图。
-                    </div>
-                  </div>
-                  <label className={`block ${activeProfile.streamImages ? '' : 'opacity-60'}`}>
-                    <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">请求中间步骤图像数</span>
-                    <Select
-                      value={normalizeStreamPartialImages(activeProfile.streamPartialImages)}
-                      onChange={(value) => updateActiveProfile({ streamPartialImages: normalizeStreamPartialImages(value) }, true)}
-                      disabled={!activeProfile.streamImages}
-                      options={[
-                        { label: '0，不请求', value: 0 },
-                        { label: '1 张', value: 1 },
-                        { label: '2 张', value: 2 },
-                        { label: '3 张', value: 3 },
-                      ]}
-                      className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
-                    />
-                    <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
-                      对应 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">partial_images</code> 参数（0-3）。建议设为 2 或 3 以避免长时间生成时连接超时断开。实际返回的每张中间图像会产生少量额外计费。设为 0 时不请求中间步骤图像，连接可能因无数据传输而被断开。
-                    </div>
-                  </label>
-                </div>
-              )}
-
-              {/* 9. 返回 Base64 图片数据 */}
+              {/* 8. 返回 Base64 图片数据 */}
               {activeProviderIsOpenAICompatible && (
                 <div className="block">
                   <div className="mb-1.5 flex items-center justify-between">

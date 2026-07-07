@@ -675,9 +675,11 @@ describe('custom providers', () => {
     expect(profile.model).toBe(DEFAULT_IMAGES_MODEL)
   })
 
-  it('disables streaming by default and preserves partial image count', () => {
+  it('disables image streaming settings', () => {
     expect(createDefaultOpenAIProfile().streamImages).toBe(false)
     expect(createDefaultOpenAIProfile().streamPartialImages).toBe(1)
+    expect(createDefaultOpenAIProfile({ streamImages: true, streamPartialImages: 3 }).streamImages).toBe(false)
+    expect(createDefaultOpenAIProfile({ streamImages: true, streamPartialImages: 3 }).streamPartialImages).toBe(1)
     expect(DEFAULT_SETTINGS.streamImages).toBe(false)
     expect(DEFAULT_SETTINGS.streamPartialImages).toBe(1)
     expect(DEFAULT_SETTINGS.profiles[0].streamImages).toBe(false)
@@ -690,9 +692,9 @@ describe('custom providers', () => {
     })
 
     expect(normalized.streamImages).toBe(false)
-    expect(normalized.streamPartialImages).toBe(3)
+    expect(normalized.streamPartialImages).toBe(1)
     expect(normalized.profiles[0].streamImages).toBe(false)
-    expect(normalized.profiles[0].streamPartialImages).toBe(3)
+    expect(normalized.profiles[0].streamPartialImages).toBe(1)
 
     const clamped = normalizeSettings({
       profiles: [
@@ -700,7 +702,7 @@ describe('custom providers', () => {
       ],
     })
 
-    expect(clamped.profiles[0].streamPartialImages).toBe(3)
+    expect(clamped.profiles[0].streamPartialImages).toBe(1)
   })
 
   it('enables Agent submit auto scroll by default', () => {

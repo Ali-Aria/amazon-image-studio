@@ -1,7 +1,7 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
-import { isOpenRouterImageGenerationProfile } from './apiProfiles'
+import { isImageStreamingEnabled, isOpenRouterImageGenerationProfile } from './apiProfiles'
 import {
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
@@ -208,7 +208,7 @@ function createResponsesImageTool(
     moderation: params.moderation,
   }
 
-  if (profile.streamImages) {
+  if (isImageStreamingEnabled(profile)) {
     tool.partial_images = getStreamPartialImages(profile)
   }
 
@@ -623,7 +623,7 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
 
 async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const n = opts.params.n > 0 ? opts.params.n : 1
-  if ((profile.codexCli || (profile.streamImages && n > 1)) && n > 1) {
+  if ((profile.codexCli || (isImageStreamingEnabled(profile) && n > 1)) && n > 1) {
     return callImagesApiConcurrent(opts, profile, n, customProvider)
   }
 
@@ -799,7 +799,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       if (profile.responseFormatB64Json) {
         formData.append('response_format', 'b64_json')
       }
-      if (profile.streamImages) {
+      if (isImageStreamingEnabled(profile)) {
         formData.append('stream', 'true')
         formData.append('partial_images', String(getStreamPartialImages(profile)))
       }
@@ -861,7 +861,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       if (profile.responseFormatB64Json) {
         body.response_format = 'b64_json'
       }
-      if (profile.streamImages) {
+      if (isImageStreamingEnabled(profile)) {
         body.stream = true
         body.partial_images = getStreamPartialImages(profile)
       }
@@ -882,7 +882,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
       throw new Error(await getApiErrorMessage(response))
     }
 
-    if (profile.streamImages && isEventStreamResponse(response)) {
+    if (isImageStreamingEnabled(profile) && isEventStreamResponse(response)) {
       return parseImagesApiStreamResponse(response, mime, opts.onPartialImage)
     }
 
@@ -1253,7 +1253,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       tools: [createResponsesImageTool(params, inputImageDataUrls.length > 0, profile, opts.maskDataUrl)],
       tool_choice: 'required',
     }
-    if (profile.streamImages) {
+    if (isImageStreamingEnabled(profile)) {
       body.stream = true
     }
 
@@ -1272,7 +1272,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiPro
       throw new Error(await getApiErrorMessage(response))
     }
 
-    if (profile.streamImages && isEventStreamResponse(response)) {
+    if (isImageStreamingEnabled(profile) && isEventStreamResponse(response)) {
       return parseResponsesApiStreamResponse(response, mime, opts.onPartialImage)
     }
 

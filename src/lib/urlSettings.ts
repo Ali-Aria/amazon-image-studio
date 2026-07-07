@@ -11,7 +11,6 @@ import {
   isAmazonPlannerProfile,
   mergeImportedSettings,
   normalizeSettings,
-  normalizeStreamPartialImages,
 } from './apiProfiles'
 
 const URL_SETTING_KEYS = [
@@ -28,15 +27,13 @@ const URL_SETTING_KEYS = [
   'plannerModel',
 ]
 
-function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode' | 'streamImages' | 'streamPartialImages'>) {
+function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode'>) {
   return JSON.stringify([
     profile.provider,
     profile.baseUrl.trim().replace(/\/+$/, '').toLowerCase(),
     profile.apiKey.trim(),
     profile.model.trim(),
     profile.apiMode,
-    profile.streamImages === true,
-    profile.streamPartialImages ?? 0,
   ])
 }
 
@@ -137,8 +134,6 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
   const codexCliParam = searchParams.get('codexCli')
   const apiModeParam = searchParams.get('apiMode')
   const modelParam = searchParams.get('model')
-  const streamImagesParam = searchParams.get('streamImages')
-  const streamPartialImagesParam = searchParams.get('streamPartialImages')
   const apiMode: ApiMode | undefined = apiModeParam === 'images' || apiModeParam === 'responses' || apiModeParam === 'chat' ? apiModeParam : undefined
   const apiSetupModeParam = searchParams.get('apiSetupMode')
   const apiSetupMode = apiSetupModeParam === 'single-connection'
@@ -151,7 +146,7 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
   const plannerModelParam = searchParams.get('plannerModel')
   const plannerModel = plannerModelParam !== null && plannerModelParam.trim() ? plannerModelParam.trim() : undefined
 
-  const hasLegacyOpenAIParams = apiUrlParam !== null || apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null || streamImagesParam !== null || streamPartialImagesParam !== null
+  const hasLegacyOpenAIParams = apiUrlParam !== null || apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null
   const hasSetupModeParams = apiSetupMode !== undefined || plannerApiMode !== undefined || plannerModel !== undefined
   const settings = importedSettings == null
     ? normalizeSettings(currentSettings)
@@ -184,9 +179,6 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
     if (apiKeyParam !== null) profile.apiKey = apiKeyParam.trim()
     if (modelParam !== null && modelParam.trim()) profile.model = modelParam.trim()
     if (codexCliParam !== null) profile.codexCli = codexCliParam.trim().toLowerCase() === 'true'
-    if (streamImagesParam !== null) profile.streamImages = streamImagesParam.trim().toLowerCase() === 'true'
-    if (streamPartialImagesParam !== null) profile.streamPartialImages = normalizeStreamPartialImages(streamPartialImagesParam)
-
     const existingProfile = settings.profiles.find((item) => getProfileDedupKey(item) === getProfileDedupKey(profile))
     if (existingProfile) {
       return applySetupModeParams(normalizeSettings({ ...settings, activeProfileId: existingProfile.id }))

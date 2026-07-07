@@ -28,7 +28,7 @@ describe('parameter compatibility', () => {
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, n: 8 }, settings).n).toBe(4)
   })
 
-  it('keeps OpenAI streaming output count so the request can disable streaming', () => {
+  it('ignores deprecated OpenAI streaming settings when normalizing output count', () => {
     const openAIProfile = createDefaultOpenAIProfile({ apiKey: 'test-key', streamImages: true })
     const settings = normalizeSettings({
       ...DEFAULT_SETTINGS,
