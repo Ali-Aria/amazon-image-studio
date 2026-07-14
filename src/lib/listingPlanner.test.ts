@@ -417,6 +417,37 @@ describe('callAmazonPlannerApi', () => {
     })
   })
 
+  it('normalizes packageIncludes arrays returned by non-compliant planner APIs', async () => {
+    const baseApiPayload = createApiPayload()
+    const apiPayload = {
+      ...baseApiPayload,
+      product: {
+        ...baseApiPayload.product,
+        packageIncludes: [' 1 tumbler ', '', '1 straw'],
+      },
+    }
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(apiPayload),
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
+    })
+
+    expect(result.parsed.inferred.packageIncludes).toBe('1 tumbler, 1 straw')
+  })
+
   it('uses the independent planner profile connection in standard mode', async () => {
     const apiPayload = createApiPayload('Independent planner planned tumbler')
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({

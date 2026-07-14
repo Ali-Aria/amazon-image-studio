@@ -29,16 +29,16 @@ import type { SizeTier } from './size'
 
 interface PlannerApiPayload {
   product?: {
-    title?: string
-    category?: string
-    brand?: string
-    color?: string
-    material?: string
-    audience?: string
-    packageIncludes?: string
+    title?: unknown
+    category?: unknown
+    brand?: unknown
+    color?: unknown
+    material?: unknown
+    audience?: unknown
+    packageIncludes?: unknown
   }
-  sellingPoints?: string[]
-  seriesStyleGuide?: string
+  sellingPoints?: unknown
+  seriesStyleGuide?: unknown
   imagePlans?: Array<Partial<AmazonImagePlan>>
   aPlusPlans?: Array<Partial<AmazonAPlusPlan>>
 }
@@ -382,25 +382,36 @@ function normalizePlan(plan: Partial<AmazonImagePlan>, index: number, slots: str
   }
 }
 
+function normalizePlannerText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizePackageIncludes(value: unknown): string {
+  if (!Array.isArray(value)) return normalizePlannerText(value)
+  return value.map(normalizePlannerText).filter(Boolean).join(', ')
+}
+
 function normalizeParsedListing(payload: PlannerApiPayload): ListingParseResult {
   const product = payload.product ?? {}
   const sellingPoints = Array.isArray(payload.sellingPoints)
     ? payload.sellingPoints.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 5)
     : []
+  const title = normalizePlannerText(product.title)
+  const brand = normalizePlannerText(product.brand)
 
-  if (!product.title?.trim()) throw new Error('AI 策划结果缺少商品标题')
+  if (!title) throw new Error('AI 策划结果缺少商品标题')
 
   return {
-    title: product.title.trim(),
+    title,
     bullets: sellingPoints,
     inferred: {
-      productTitle: product.title.trim(),
-      category: product.category?.trim() ?? '',
-      ...(product.brand?.trim() ? { brand: product.brand.trim() } : {}),
-      color: product.color?.trim() ?? '',
-      material: product.material?.trim() ?? '',
-      audience: product.audience?.trim() ?? '',
-      packageIncludes: product.packageIncludes?.trim() ?? '',
+      productTitle: title,
+      category: normalizePlannerText(product.category),
+      ...(brand ? { brand } : {}),
+      color: normalizePlannerText(product.color),
+      material: normalizePlannerText(product.material),
+      audience: normalizePlannerText(product.audience),
+      packageIncludes: normalizePackageIncludes(product.packageIncludes),
       sellingPoints: sellingPoints.join('\n'),
     },
   }
