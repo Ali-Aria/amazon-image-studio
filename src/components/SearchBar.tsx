@@ -88,7 +88,7 @@ export default function SearchBar() {
   }, [clearLabel, filterProductTitle, filteredTasks, hasActiveFilters, productFilterActive, setConfirmDialog])
 
   return (
-    <div data-no-drag-select className="mt-6 mb-4 flex flex-col gap-2 lg:flex-row lg:items-center">
+    <div data-no-drag-select className="mb-4 mt-6 flex flex-col gap-2 lg:flex-row lg:items-center">
       <div className="flex flex-wrap gap-2 flex-shrink-0 z-20">
         <button
           onClick={() => setFilterFavorite(!filterFavorite)}
@@ -171,7 +171,7 @@ export default function SearchBar() {
           onChange={(e) => setSearchQuery(e.target.value)}
           type="text"
           placeholder="搜索提示词、参数..."
-          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
+          className="ios-search-field w-full py-2.5 pl-10 pr-4 text-sm outline-none"
         />
       </div>
       <button

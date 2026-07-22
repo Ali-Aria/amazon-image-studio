@@ -1,23 +1,35 @@
-@import url('https://fontsapi.zeoseven.com/442/main/result.css');
-@import url('https://cdn.jsdelivr.net/npm/@lobehub/webfont-harmony-sans-sc@1.0.0/css/index.css');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 240 10% 10%;
-  --muted: 240 5% 96%;
-  --muted-foreground: 240 4% 46%;
-  --border: 240 6% 90%;
-  --input: 240 6% 90%;
-  --primary: 221 83% 53%;
+  color-scheme: light dark;
+  --background: 240 20% 97%;
+  --foreground: 240 6% 10%;
+  --muted: 240 11% 95%;
+  --muted-foreground: 240 2% 43%;
+  --border: 240 7% 85%;
+  --input: 240 7% 88%;
+  --primary: 211 100% 50%;
   --primary-foreground: 0 0% 100%;
-  --sidebar: 240 5% 96%;
-  --sidebar-foreground: 240 10% 10%;
-  --font-ui-sans: 'HarmonyOS Sans SC', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-mono: 'Maple Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --sidebar: 240 20% 97%;
+  --sidebar-foreground: 240 6% 10%;
+  --surface: 0 0% 100%;
+  --surface-elevated: 0 0% 100%;
+  --surface-glass: 0 0% 100% / 0.78;
+  --separator: 240 6% 76% / 0.34;
+  --ios-blue-tint: 211 100% 50% / 0.11;
+  --ios-shadow-1: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.05);
+  --ios-shadow-2: 0 16px 50px rgb(0 0 0 / 0.16), 0 2px 8px rgb(0 0 0 / 0.08);
+  --ios-radius-sm: 10px;
+  --ios-radius-md: 14px;
+  --ios-radius-lg: 20px;
+  --ios-radius-sheet: 26px;
+  --ios-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ios-duration-fast: 160ms;
+  --ios-duration: 260ms;
+  --font-ui-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-right: env(safe-area-inset-right, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
@@ -31,8 +43,37 @@ html {
 
 body {
   padding: 0;
+  min-height: 100vh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-ui-sans);
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
+  letter-spacing: -0.008em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   -webkit-user-select: none;
   user-select: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+[role='button'] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 3px solid hsl(var(--primary) / 0.28);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.2);
 }
 
 input,
@@ -71,21 +112,180 @@ body.drag-selecting * {
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: 240 10% 4%;
-    --foreground: 0 0% 98%;
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 65%;
-    --border: 240 4% 22%;
-    --input: 240 4% 22%;
-    --primary: 217 91% 60%;
+    --background: 240 5% 4%;
+    --foreground: 240 5% 96%;
+    --muted: 240 4% 15%;
+    --muted-foreground: 240 5% 62%;
+    --border: 240 3% 26%;
+    --input: 240 3% 24%;
+    --primary: 211 100% 52%;
     --primary-foreground: 0 0% 100%;
-    --sidebar: 240 5% 12%;
-    --sidebar-foreground: 0 0% 98%;
+    --sidebar: 240 5% 8%;
+    --sidebar-foreground: 240 5% 96%;
+    --surface: 240 4% 9%;
+    --surface-elevated: 240 4% 12%;
+    --surface-glass: 240 4% 10% / 0.78;
+    --separator: 0 0% 100% / 0.11;
+    --ios-blue-tint: 211 100% 52% / 0.16;
+    --ios-shadow-1: 0 1px 2px rgb(0 0 0 / 0.26), 0 10px 30px rgb(0 0 0 / 0.22);
+    --ios-shadow-2: 0 20px 60px rgb(0 0 0 / 0.55), 0 2px 10px rgb(0 0 0 / 0.35);
   }
 
   * {
     scrollbar-color: #3f3f46 transparent;
   }
+}
+
+@layer components {
+  .ios-surface {
+    background: hsl(var(--surface) / 0.94);
+    border: 1px solid hsl(var(--separator));
+    border-radius: var(--ios-radius-lg);
+    box-shadow: var(--ios-shadow-1);
+  }
+
+  .ios-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: var(--ios-radius-sm);
+    font-weight: 600;
+    line-height: 1;
+    transition:
+      transform var(--ios-duration-fast) var(--ios-ease),
+      background-color var(--ios-duration-fast) ease,
+      color var(--ios-duration-fast) ease,
+      box-shadow var(--ios-duration-fast) ease,
+      opacity var(--ios-duration-fast) ease;
+  }
+
+  .ios-button:hover:not(:disabled) {
+    filter: saturate(1.02) brightness(0.99);
+  }
+
+  .ios-button:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  .ios-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.44;
+  }
+
+  .ios-button-filled {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    box-shadow: 0 3px 10px hsl(var(--primary) / 0.18);
+  }
+
+  .ios-button-tinted {
+    background: hsl(var(--ios-blue-tint));
+    color: hsl(var(--primary));
+  }
+
+  .ios-button-plain {
+    background: transparent;
+    color: hsl(var(--primary));
+  }
+
+  .ios-button-plain:hover:not(:disabled) {
+    background: hsl(var(--muted) / 0.8);
+  }
+
+  .ios-button-danger {
+    background: rgb(255 59 48);
+    color: white;
+  }
+
+  .ios-button-sm { min-height: 36px; padding: 0.55rem 0.85rem; font-size: 0.8125rem; }
+  .ios-button-md { min-height: 44px; padding: 0.7rem 1rem; font-size: 0.875rem; }
+  .ios-button-icon { width: 44px; height: 44px; padding: 0; border-radius: 9999px; }
+
+  .ios-sheet-root {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .ios-sheet-backdrop {
+    background: rgb(0 0 0 / 0.22);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+    animation: overlay-in var(--ios-duration) ease-out both;
+  }
+
+  .ios-sheet-panel {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    overflow: hidden;
+    border: 1px solid hsl(var(--separator));
+    border-radius: var(--ios-radius-sheet);
+    background: hsl(var(--surface-glass));
+    box-shadow: var(--ios-shadow-2);
+    backdrop-filter: blur(30px) saturate(1.35);
+    -webkit-backdrop-filter: blur(30px) saturate(1.35);
+    animation: sheet-in var(--ios-duration) var(--ios-ease) both;
+    will-change: transform, opacity;
+  }
+
+  .ios-sheet-grabber-zone {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 5;
+    display: flex;
+    height: 22px;
+    touch-action: none;
+    cursor: grab;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ios-sheet-grabber-zone:active { cursor: grabbing; }
+
+  .ios-sheet-grabber {
+    width: 42px;
+    height: 5px;
+    border-radius: 9999px;
+    background: hsl(var(--muted-foreground) / 0.34);
+  }
+
+  .ios-menu {
+    border: 1px solid hsl(var(--separator));
+    border-radius: var(--ios-radius-md);
+    background: hsl(var(--surface-glass));
+    box-shadow: var(--ios-shadow-2);
+    backdrop-filter: blur(24px) saturate(1.25);
+    -webkit-backdrop-filter: blur(24px) saturate(1.25);
+  }
+
+  .ios-search-field {
+    min-height: 42px;
+    border: 1px solid transparent;
+    border-radius: var(--ios-radius-md);
+    background: hsl(var(--muted) / 0.9);
+    color: hsl(var(--foreground));
+    transition: background var(--ios-duration-fast) ease, box-shadow var(--ios-duration-fast) ease;
+  }
+
+  .ios-search-field:focus {
+    background: hsl(var(--surface));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.16);
+  }
+
+  .ios-select-trigger {
+    min-height: 40px;
+    border-color: hsl(var(--separator));
+    background: hsl(var(--surface) / 0.9);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
+  }
+}
+
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(24px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -424,6 +624,33 @@ input[type="number"] {
   .safe-area-top {
     padding-top: max(0.5rem, var(--safe-area-top));
   }
+
+  .ios-sheet-root {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .ios-sheet-panel {
+    max-height: calc(100dvh - max(0.75rem, var(--safe-area-top)));
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  [data-input-bar] {
+    bottom: max(0.65rem, var(--safe-area-bottom));
+  }
+
+  [data-history-sheet] {
+    position: fixed;
+    inset: auto 0 0;
+    width: 100%;
+    max-width: none;
+    max-height: min(72dvh, 38rem);
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
 }
 
 .safe-header-inner {
@@ -515,4 +742,19 @@ input[type="number"] {
 .ios-rounded-scroll-fix {
   isolation: isolate;
   -webkit-mask-image: -webkit-radial-gradient(white, black);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .ios-button:active:not(:disabled) {
+    transform: none;
+  }
 }

@@ -5,6 +5,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import { HelpCircleIcon, InstallIcon, SettingsIcon } from './icons'
+import { Button } from './Button'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -86,10 +87,10 @@ export default function Header() {
 
   return (
     <>
-      <header data-no-drag-select className="safe-area-top fixed top-0 left-0 right-0 z-40 border-b border-gray-200 bg-white/80 backdrop-blur dark:border-white/[0.08] dark:bg-gray-950/80">
+      <header data-no-drag-select className="safe-area-top fixed left-0 right-0 top-0 z-40 border-b border-black/[0.06] bg-white/75 shadow-[0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-2xl dark:border-white/[0.08] dark:bg-gray-950/80 dark:shadow-none">
         <div className="safe-area-x safe-header-inner mx-auto flex max-w-7xl items-center justify-between">
           <h1 className="min-w-0 pr-3">
-            <span className="text-[17px] font-bold tracking-tight text-gray-800 transition-colors hover:text-gray-600 dark:text-gray-100 dark:hover:text-gray-300 sm:text-lg">
+            <span className="text-[17px] font-semibold tracking-[-0.025em] text-gray-900 dark:text-gray-100 sm:text-lg">
               亚马逊图片工作台
             </span>
           </h1>
@@ -99,16 +100,18 @@ export default function Header() {
                 className="relative"
                 {...installTooltip.handlers}
               >
-                <button
+                <Button
                   onClick={() => {
                     dismissAllTooltips()
                     handleInstallClick()
                   }}
-                  className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-900"
+                  variant="plain"
+                  size="icon"
+                  className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                   aria-label="安装为应用"
                 >
-                  <InstallIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                </button>
+                  <InstallIcon className="h-5 w-5" />
+                </Button>
                 <ViewportTooltip visible={installTooltip.visible} className="whitespace-nowrap">
                   安装为应用
                 </ViewportTooltip>
@@ -118,16 +121,18 @@ export default function Header() {
               className="relative"
               {...helpTooltip.handlers}
             >
-              <button
+              <Button
                 onClick={() => {
                   dismissAllTooltips()
                   setShowHelp(true)
                 }}
-                className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-900"
+                variant="plain"
+                size="icon"
+                className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                 aria-label="操作指南"
               >
-                <HelpCircleIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              </button>
+                <HelpCircleIcon className="h-5 w-5" />
+              </Button>
               <ViewportTooltip visible={helpTooltip.visible} className="whitespace-nowrap">
                 操作指南
               </ViewportTooltip>
@@ -136,13 +141,15 @@ export default function Header() {
               className="relative"
               {...settingsTooltip.handlers}
             >
-              <button
+              <Button
                 onClick={() => setShowSettings(true)}
-                className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-900"
+                variant="plain"
+                size="icon"
+                className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                 aria-label="设置"
               >
-                <SettingsIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              </button>
+                <SettingsIcon className="h-5 w-5" />
+              </Button>
               <ViewportTooltip visible={settingsTooltip.visible} className="whitespace-nowrap">
                 设置
               </ViewportTooltip>

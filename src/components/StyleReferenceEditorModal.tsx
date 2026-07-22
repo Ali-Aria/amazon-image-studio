@@ -4,6 +4,7 @@ import { renderStyleReferenceDataUrl, sanitizeStyleReferenceEditState } from '..
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { CloseIcon } from './icons'
+import { Sheet } from './Sheet'
 
 const FIELD_CLASS = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500'
 const LABEL_CLASS = 'mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400'
@@ -109,19 +110,15 @@ export default function StyleReferenceEditorModal({
   }
 
   return (
-    <div
-      data-no-drag-select
-      className="fixed inset-0 z-[115] flex items-center justify-center p-4"
-      onClick={onClose}
+    <Sheet
+      onClose={onClose}
+      rootClassName="z-[115]"
+      className="flex max-h-[92vh] max-w-5xl flex-col overflow-hidden pt-5"
+      labelledBy="style-editor-sheet-title"
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-md dark:bg-black/50" />
-      <div
-        className="relative z-10 flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/60 bg-white shadow-2xl ring-1 ring-black/5 dark:border-white/[0.08] dark:bg-gray-950 dark:ring-white/10"
-        onClick={(event) => event.stopPropagation()}
-      >
         <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-white/[0.08]">
           <div className="min-w-0">
-            <div className="truncate text-base font-semibold text-gray-900 dark:text-gray-100">{title}</div>
+            <div id="style-editor-sheet-title" className="truncate text-base font-semibold text-gray-900 dark:text-gray-100">{title}</div>
             <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">保存后生成一张新的隐藏风格参考图。</div>
           </div>
           <button
@@ -246,7 +243,6 @@ export default function StyleReferenceEditorModal({
             {saving ? '保存中...' : '保存风格'}
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   )
 }

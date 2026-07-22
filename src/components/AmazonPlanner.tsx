@@ -1567,7 +1567,7 @@ export default function AmazonPlanner() {
         onSave={(state) => void saveStyleEditor(state)}
       />
     )}
-    <section data-no-drag-select className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-white/[0.08] dark:bg-gray-900">
+    <section data-no-drag-select className="ios-surface mt-6 overflow-hidden">
       <div className="border-b border-gray-200 px-4 py-4 dark:border-white/[0.08] sm:px-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
