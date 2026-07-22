@@ -602,7 +602,7 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
   const zoomPercent = Math.round(s * 100)
 
   const navBtnClass =
-    'absolute top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-all z-10 backdrop-blur-sm'
+    'ios-floating-chrome absolute top-1/2 z-10 -translate-y-1/2 rounded-full p-2 text-white hover:opacity-80'
 
   return (
     <div
@@ -613,13 +613,13 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
       onClick={onClick}
       onDoubleClick={onDoubleClick}
     >
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-2xl animate-fade-in" />
+      <div className="absolute inset-0 bg-black/72 backdrop-blur-2xl animate-fade-in" />
       <div className="relative animate-zoom-in">
         <div
           className="relative flex items-center justify-center"
           style={{
             transform: `translate(${tx}px, ${ty}px) scale(${s})`,
-            transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+            transition: isDragging ? 'none' : 'transform var(--ios-duration) var(--ios-ease)',
             willChange: 'transform',
           }}
         >
@@ -665,14 +665,14 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
       {/* 底部指示器 */}
       {showZoomBadge && isZoomed && zoomPercent !== 100 && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
-          <span className="px-3 py-1.5 bg-black/50 text-white/80 text-xs rounded-full backdrop-blur-sm transition-opacity duration-500">
+          <span className="ios-floating-chrome px-3 py-1.5 text-xs text-white/80">
             {zoomPercent}%
           </span>
         </div>
       )}
       {showNav && !isZoomed && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
-          <span className="px-3 py-1.5 bg-black/50 text-white/80 text-xs rounded-full backdrop-blur-sm">
+          <span className="ios-floating-chrome px-3 py-1.5 text-xs text-white/80">
             {currentIndex + 1} / {total}
           </span>
         </div>

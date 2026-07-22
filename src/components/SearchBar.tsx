@@ -88,14 +88,14 @@ export default function SearchBar() {
   }, [clearLabel, filterProductTitle, filteredTasks, hasActiveFilters, productFilterActive, setConfirmDialog])
 
   return (
-    <div data-no-drag-select className="mb-4 mt-6 flex flex-col gap-2 lg:flex-row lg:items-center">
+    <div data-no-drag-select className="ios-material mb-4 mt-6 flex flex-col gap-2 p-2 lg:flex-row lg:items-center">
       <div className="flex flex-wrap gap-2 flex-shrink-0 z-20">
         <button
           onClick={() => setFilterFavorite(!filterFavorite)}
-          className={`p-2.5 rounded-xl border transition-all ${
+          className={`ios-button p-2.5 ${
             filterFavorite
-              ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-500/10 text-yellow-500'
-              : 'border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.06]'
+              ? 'bg-yellow-50 text-yellow-500 dark:bg-yellow-500/10'
+              : 'bg-[hsl(var(--muted))] text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
           }`}
           title={filterFavorite ? '取消只看收藏' : '只看收藏'}
         >
@@ -113,7 +113,7 @@ export default function SearchBar() {
               { label: '生成中', value: 'running' },
               { label: '失败', value: 'error' },
             ]}
-            className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-white/[0.06] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
+            className="ios-select-trigger px-3 py-2.5 text-sm"
           />
         </div>
         <div className="relative w-40 sm:w-48">
@@ -121,7 +121,7 @@ export default function SearchBar() {
             value={filterProductTitle}
             onChange={(val) => setFilterProductTitle(String(val))}
             options={productOptions}
-            className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-white/[0.06] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
+            className="ios-select-trigger px-3 py-2.5 text-sm"
           />
         </div>
         <div className="relative w-28">
@@ -135,7 +135,7 @@ export default function SearchBar() {
               { label: '普通生图', value: 'gallery' },
               { label: 'Agent', value: 'agent' },
             ]}
-            className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-white/[0.06] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
+            className="ios-select-trigger px-3 py-2.5 text-sm"
           />
         </div>
         <div className="relative w-28">
@@ -148,7 +148,7 @@ export default function SearchBar() {
               { label: '横幅图', value: 'landscape' },
               { label: '竖图', value: 'portrait' },
             ]}
-            className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-white/[0.06] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
+            className="ios-select-trigger px-3 py-2.5 text-sm"
           />
         </div>
       </div>
@@ -179,10 +179,10 @@ export default function SearchBar() {
         onClick={handleClearHistory}
         disabled={!filteredTasks.length}
         title={filteredTasks.length ? `删除当前范围内的 ${filteredTasks.length} 条历史记录` : '没有可清空的记录'}
-        className={`inline-flex h-[42px] shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition ${
+        className={`ios-button inline-flex h-[42px] shrink-0 items-center justify-center gap-1.5 px-3 text-sm font-medium ${
           filteredTasks.length
-            ? 'border-red-200 bg-white text-red-600 hover:bg-red-50 dark:border-red-400/20 dark:bg-gray-900 dark:text-red-300 dark:hover:bg-red-400/10'
-            : 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-300 dark:border-white/[0.04] dark:bg-white/[0.04] dark:text-gray-600'
+            ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-400/10 dark:text-red-300'
+            : 'cursor-not-allowed bg-gray-100 text-gray-300 dark:bg-white/[0.04] dark:text-gray-600'
         }`}
       >
         <TrashIcon className="h-4 w-4" />

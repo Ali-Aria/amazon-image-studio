@@ -67,6 +67,15 @@ button,
   -webkit-tap-highlight-color: transparent;
 }
 
+[role='switch'] {
+  transition-duration: var(--ios-duration-fast) !important;
+  transition-timing-function: var(--ios-ease) !important;
+}
+
+[role='switch'][aria-checked='true'] {
+  background-color: hsl(var(--primary)) !important;
+}
+
 :focus-visible {
   outline: 3px solid hsl(var(--primary) / 0.28);
   outline-offset: 2px;
@@ -126,7 +135,7 @@ body.drag-selecting * {
     --surface-elevated: 240 4% 12%;
     --surface-glass: 240 4% 10% / 0.78;
     --separator: 0 0% 100% / 0.11;
-    --ios-blue-tint: 211 100% 52% / 0.16;
+    --ios-blue-tint: 211 100% 52% / 0.11;
     --ios-shadow-1: 0 1px 2px rgb(0 0 0 / 0.26), 0 10px 30px rgb(0 0 0 / 0.22);
     --ios-shadow-2: 0 20px 60px rgb(0 0 0 / 0.55), 0 2px 10px rgb(0 0 0 / 0.35);
   }
@@ -138,9 +147,124 @@ body.drag-selecting * {
 
 @layer components {
   .ios-surface {
-    background: hsl(var(--surface) / 0.94);
-    border: 1px solid hsl(var(--separator));
+    background: hsl(var(--surface-glass));
     border-radius: var(--ios-radius-lg);
+    box-shadow: var(--ios-shadow-1);
+    backdrop-filter: blur(24px) saturate(1.18);
+    -webkit-backdrop-filter: blur(24px) saturate(1.18);
+  }
+
+  .ios-material {
+    background: hsl(var(--surface-glass));
+    border-radius: var(--ios-radius-lg);
+    box-shadow: var(--ios-shadow-2);
+    backdrop-filter: blur(32px) saturate(1.28);
+    -webkit-backdrop-filter: blur(32px) saturate(1.28);
+  }
+
+  .ios-card {
+    background: hsl(var(--surface-glass));
+    border: 0;
+    border-radius: var(--ios-radius-lg);
+    box-shadow: var(--ios-shadow-1);
+    backdrop-filter: blur(20px) saturate(1.14);
+    -webkit-backdrop-filter: blur(20px) saturate(1.14);
+  }
+
+  .ios-group {
+    overflow: hidden;
+    border-radius: var(--ios-radius-lg);
+    background: hsl(var(--surface-glass));
+    box-shadow: var(--ios-shadow-1);
+    backdrop-filter: blur(18px) saturate(1.12);
+    -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  }
+
+  .ios-group-title {
+    margin: 0 0 0.45rem 0.85rem;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.6875rem;
+    font-weight: 650;
+    letter-spacing: 0.075em;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+
+  .ios-group-row {
+    min-height: 48px;
+    background: transparent;
+    padding: 0.7rem 0.9rem;
+  }
+
+  .ios-group-row + .ios-group-row {
+    border-top: 1px solid hsl(var(--separator));
+  }
+
+  .ios-settings-fields > label,
+  .ios-settings-fields > div {
+    display: block;
+    margin: 0;
+    background: hsl(var(--surface) / 0.92);
+    padding: 0.8rem 0.9rem;
+  }
+
+  .ios-settings-fields > label + label,
+  .ios-settings-fields > label + div,
+  .ios-settings-fields > div + label,
+  .ios-settings-fields > div + div {
+    border-top: 1px solid hsl(var(--separator));
+  }
+
+  .ios-field {
+    min-height: 42px;
+    border: 0 !important;
+    border-radius: var(--ios-radius-md) !important;
+    background: hsl(var(--muted) / 0.86) !important;
+    color: hsl(var(--foreground));
+    outline: none;
+    box-shadow: none;
+    transition:
+      background-color var(--ios-duration-fast) var(--ios-ease),
+      box-shadow var(--ios-duration-fast) var(--ios-ease),
+      opacity var(--ios-duration-fast) var(--ios-ease);
+  }
+
+  .ios-field:hover:not(:disabled) {
+    background: hsl(var(--muted)) !important;
+  }
+
+  .ios-field:focus,
+  .ios-field:focus-visible {
+    background: hsl(var(--surface-elevated)) !important;
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.2) !important;
+    outline: none;
+  }
+
+  .ios-segmented {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    border: 0;
+    border-radius: var(--ios-radius-md);
+    background: hsl(var(--muted));
+    padding: 0.125rem;
+  }
+
+  .ios-segment {
+    border: 0;
+    border-radius: calc(var(--ios-radius-md) - 2px);
+    background: transparent;
+    transition:
+      background-color var(--ios-duration-fast) var(--ios-ease),
+      color var(--ios-duration-fast) var(--ios-ease),
+      box-shadow var(--ios-duration-fast) var(--ios-ease),
+      transform var(--ios-duration-fast) var(--ios-ease);
+  }
+
+  .ios-segment[data-active='true'],
+  .ios-segment[aria-selected='true'],
+  .ios-segment[aria-pressed='true'] {
+    background: hsl(var(--surface-elevated));
     box-shadow: var(--ios-shadow-1);
   }
 
@@ -213,7 +337,7 @@ body.drag-selecting * {
     background: rgb(0 0 0 / 0.22);
     backdrop-filter: blur(18px) saturate(1.15);
     -webkit-backdrop-filter: blur(18px) saturate(1.15);
-    animation: overlay-in var(--ios-duration) ease-out both;
+    animation: overlay-in var(--ios-duration) var(--ios-ease) both;
   }
 
   .ios-sheet-panel {
@@ -221,7 +345,7 @@ body.drag-selecting * {
     z-index: 1;
     width: 100%;
     overflow: hidden;
-    border: 1px solid hsl(var(--separator));
+    border: 0;
     border-radius: var(--ios-radius-sheet);
     background: hsl(var(--surface-glass));
     box-shadow: var(--ios-shadow-2);
@@ -246,14 +370,14 @@ body.drag-selecting * {
   .ios-sheet-grabber-zone:active { cursor: grabbing; }
 
   .ios-sheet-grabber {
-    width: 42px;
+    width: 36px;
     height: 5px;
     border-radius: 9999px;
     background: hsl(var(--muted-foreground) / 0.34);
   }
 
   .ios-menu {
-    border: 1px solid hsl(var(--separator));
+    border: 0;
     border-radius: var(--ios-radius-md);
     background: hsl(var(--surface-glass));
     box-shadow: var(--ios-shadow-2);
@@ -263,11 +387,11 @@ body.drag-selecting * {
 
   .ios-search-field {
     min-height: 42px;
-    border: 1px solid transparent;
+    border: 0;
     border-radius: var(--ios-radius-md);
     background: hsl(var(--muted) / 0.9);
     color: hsl(var(--foreground));
-    transition: background var(--ios-duration-fast) ease, box-shadow var(--ios-duration-fast) ease;
+    transition: background var(--ios-duration-fast) var(--ios-ease), box-shadow var(--ios-duration-fast) var(--ios-ease);
   }
 
   .ios-search-field:focus {
@@ -277,10 +401,81 @@ body.drag-selecting * {
 
   .ios-select-trigger {
     min-height: 40px;
-    border-color: hsl(var(--separator));
-    background: hsl(var(--surface) / 0.9);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
+    border: 0 !important;
+    border-radius: var(--ios-radius-md) !important;
+    background: hsl(var(--muted) / 0.9) !important;
+    box-shadow: none;
+    transition:
+      background-color var(--ios-duration-fast) var(--ios-ease),
+      box-shadow var(--ios-duration-fast) var(--ios-ease);
   }
+
+  .ios-select-trigger:hover {
+    background: hsl(var(--ios-blue-tint)) !important;
+  }
+
+  .ios-floating-chrome {
+    background: hsl(var(--surface-glass)) !important;
+    border: 0 !important;
+    border-radius: var(--ios-radius-lg) !important;
+    box-shadow: var(--ios-shadow-2) !important;
+    backdrop-filter: blur(32px) saturate(1.28) !important;
+    -webkit-backdrop-filter: blur(32px) saturate(1.28) !important;
+  }
+}
+
+/* Component-level defaults: form controls are filled or grouped, never outlined boxes. */
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+textarea,
+select {
+  border: 0 !important;
+  border-radius: var(--ios-radius-md) !important;
+  background-color: hsl(var(--muted) / 0.86) !important;
+  outline: none !important;
+  transition-duration: var(--ios-duration-fast) !important;
+  transition-timing-function: var(--ios-ease) !important;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+textarea:focus,
+select:focus {
+  border: 0 !important;
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.2) !important;
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: hsl(var(--muted) / 0.9) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-position: right 0.65rem center;
+  background-repeat: no-repeat;
+  padding-right: 2rem !important;
+}
+
+/* Normalize legacy geometry to the semantic iOS radius scale. */
+.rounded,
+.rounded-md {
+  border-radius: var(--ios-radius-sm) !important;
+}
+
+.rounded-lg,
+.rounded-xl {
+  border-radius: var(--ios-radius-md) !important;
+}
+
+.rounded-2xl,
+.rounded-3xl {
+  border-radius: var(--ios-radius-lg) !important;
+}
+
+.transition,
+.transition-all,
+.transition-colors,
+.transition-opacity,
+.transition-transform {
+  transition-duration: var(--ios-duration) !important;
+  transition-timing-function: var(--ios-ease) !important;
 }
 
 @keyframes sheet-in {

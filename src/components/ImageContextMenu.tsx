@@ -204,14 +204,14 @@ export default function ImageContextMenu() {
     >
       <button
         onClick={handleCopy}
-        className="flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100/80 dark:text-gray-200 dark:hover:bg-white/[0.08]"
+        className="flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <CopyIcon className="w-4 h-4 flex-shrink-0" />
         复制
       </button>
       <button
         onClick={handleDownload}
-        className="flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100/80 dark:text-gray-200 dark:hover:bg-white/[0.08]"
+        className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <DownloadIcon className="w-4 h-4 flex-shrink-0" />
         下载
@@ -219,7 +219,7 @@ export default function ImageContextMenu() {
       {showDownloadAll && (
         <button
           onClick={handleDownloadAll}
-          className="flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100/80 dark:text-gray-200 dark:hover:bg-white/[0.08]"
+          className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
         >
           <DownloadIcon className="w-4 h-4 flex-shrink-0" />
           下载全部
@@ -227,7 +227,7 @@ export default function ImageContextMenu() {
       )}
       <button
         onClick={handleEdit}
-        className="flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100/80 dark:text-gray-200 dark:hover:bg-white/[0.08]"
+        className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <EditIcon className="w-4 h-4 flex-shrink-0" />
         编辑

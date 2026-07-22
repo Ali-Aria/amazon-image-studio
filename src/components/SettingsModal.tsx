@@ -35,6 +35,7 @@ import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
 import Select from './Select'
+import { Sheet, useSheetDrag } from './Sheet'
 import { Checkbox } from './Checkbox'
 import ViewportTooltip from './ViewportTooltip'
 import { ChevronDownIcon, CloseIcon, CopyIcon, PlusIcon, TrashIcon, GithubIcon, ExportIcon, ImportIcon, DragHandleIcon, LinkIcon } from './icons'
@@ -711,6 +712,8 @@ export default function SettingsModal() {
     setShowSettings(false)
   }
 
+  const { panelStyle: settingsSheetStyle, dragHandleProps: settingsDragHandleProps } = useSheetDrag(handleClose)
+
   const commitTimeout = useCallback(() => {
     if (!isOpenAICompatibleProvider(draft, activeProfile.provider)) return
     const nextTimeout = Number(timeoutInput)
@@ -1117,7 +1120,13 @@ export default function SettingsModal() {
   }
 
   return (
-        <div data-no-drag-select className="ios-sheet-root fixed inset-0 z-[70]">
+        <div
+          data-no-drag-select
+          className="ios-sheet-root fixed inset-0 z-[70]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-sheet-title"
+        >
       <div
         className="ios-sheet-backdrop absolute inset-0"
         onClick={handleClose}
@@ -1125,12 +1134,13 @@ export default function SettingsModal() {
       <div
         ref={settingsScrollBoundaryRef}
         className="ios-sheet-panel flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden sm:h-[min(720px,86vh)]"
+        style={settingsSheetStyle}
       >
-        <div className="ios-sheet-grabber-zone" aria-hidden="true"><span className="ios-sheet-grabber" /></div>
+        <div className="ios-sheet-grabber-zone" {...settingsDragHandleProps} aria-hidden="true"><span className="ios-sheet-grabber" /></div>
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-black/[0.06] p-5 pt-7 dark:border-white/[0.08]">
-          <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <h3 id="settings-sheet-title" className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+            <svg className="w-5 h-5 text-[hsl(var(--primary))]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
@@ -1311,8 +1321,8 @@ export default function SettingsModal() {
             )}
             
             {activeTab === 'api' && (
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-gray-200/70 bg-white/55 p-3 dark:border-white/[0.08] dark:bg-white/[0.03]">
+              <div className="ios-settings-form space-y-5">
+                <div className="ios-group p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">API 配置模式</span>
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${singleConnectionMode ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200' : 'bg-gray-100 text-gray-600 dark:bg-white/[0.08] dark:text-gray-300'}`}>
@@ -1323,7 +1333,7 @@ export default function SettingsModal() {
                     <button
                       type="button"
                       onClick={() => setApiSetupMode('standard')}
-                      className={`rounded-xl border px-3 py-2 text-left transition ${!singleConnectionMode ? 'border-blue-300 bg-blue-50 text-blue-800 ring-2 ring-blue-500/10 dark:border-blue-400/50 dark:bg-blue-500/10 dark:text-blue-100' : 'border-gray-200/70 bg-white/60 text-gray-600 hover:bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]'}`}
+                      className={`rounded-[var(--ios-radius-md)] px-3 py-2 text-left transition-colors ${!singleConnectionMode ? 'bg-[hsl(var(--ios-blue-tint))] text-[hsl(var(--primary))] ring-2 ring-[hsl(var(--primary)/0.16)]' : 'bg-[hsl(var(--muted))] text-gray-600 hover:bg-[hsl(var(--surface-elevated))] dark:text-gray-300'}`}
                       role="radio"
                       aria-checked={!singleConnectionMode}
                     >
@@ -1333,7 +1343,7 @@ export default function SettingsModal() {
                     <button
                       type="button"
                       onClick={() => setApiSetupMode('single-connection')}
-                      className={`rounded-xl border px-3 py-2 text-left transition ${singleConnectionMode ? 'border-blue-300 bg-blue-50 text-blue-800 ring-2 ring-blue-500/10 dark:border-blue-400/50 dark:bg-blue-500/10 dark:text-blue-100' : 'border-gray-200/70 bg-white/60 text-gray-600 hover:bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]'}`}
+                      className={`rounded-[var(--ios-radius-md)] px-3 py-2 text-left transition-colors ${singleConnectionMode ? 'bg-[hsl(var(--ios-blue-tint))] text-[hsl(var(--primary))] ring-2 ring-[hsl(var(--primary)/0.16)]' : 'bg-[hsl(var(--muted))] text-gray-600 hover:bg-[hsl(var(--surface-elevated))] dark:text-gray-300'}`}
                       role="radio"
                       aria-checked={singleConnectionMode}
                     >
@@ -1407,7 +1417,7 @@ export default function SettingsModal() {
                         if (!showProfileMenu) updateProfileMenuMaxHeight()
                         setShowProfileMenu(!showProfileMenu)
                       }}
-                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 text-sm text-gray-700 outline-none transition hover:bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:hover:bg-white/[0.06]"
+                      className="ios-select-trigger flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200"
                       title={activeProfile.name}
                     >
                       <span className="flex min-w-0 items-center gap-2">
@@ -1422,7 +1432,7 @@ export default function SettingsModal() {
                     {showProfileMenu && (
                       <>
                         <div
-                          className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-gray-200/60 bg-white/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl animate-dropdown-down dark:border-white/[0.08] dark:bg-gray-900/95 dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar"
+                          className="ios-menu absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto py-1 animate-dropdown-down custom-scrollbar"
                           style={{ maxHeight: profileMenuMaxHeight }}
                         >
                           <button
@@ -1524,7 +1534,7 @@ export default function SettingsModal() {
                   </div>
                 </div>
 
-              <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3 dark:border-blue-400/20 dark:bg-blue-400/10">
+              <div className="ios-group bg-[hsl(var(--ios-blue-tint))] p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold text-blue-900 dark:text-blue-100">AI 策划配置</span>
                   <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-200">
@@ -1549,7 +1559,7 @@ export default function SettingsModal() {
                           { label: 'Responses API (/v1/responses)', value: 'responses' },
                           { label: 'Chat Completions (/chat/completions)', value: 'chat' },
                         ]}
-                        className="w-full rounded-xl border border-blue-200/70 bg-white/80 px-3 py-2.5 text-sm text-blue-900 outline-none transition focus:border-blue-300 dark:border-blue-400/20 dark:bg-gray-950/40 dark:text-blue-100 dark:focus:border-blue-500/50"
+                        className="ios-field w-full px-3 py-2.5 text-sm text-[hsl(var(--primary))]"
                       />
                     </div>
                     <label className="block">
@@ -1560,7 +1570,7 @@ export default function SettingsModal() {
                         onBlur={(e) => commitPlannerProfilePatch({ model: e.target.value })}
                         type="text"
                         placeholder={getDefaultModelForMode(plannerApiMode)}
-                        className="w-full rounded-xl border border-blue-200/70 bg-white/80 px-3 py-2.5 text-sm text-blue-900 outline-none transition focus:border-blue-300 dark:border-blue-400/20 dark:bg-gray-950/40 dark:text-blue-100 dark:focus:border-blue-500/50"
+                        className="ios-field w-full px-3 py-2.5 text-sm text-[hsl(var(--primary))]"
                       />
                     </label>
                   </div>
@@ -1570,7 +1580,7 @@ export default function SettingsModal() {
                     onChange={(value) => commitSettings({ ...draft, amazonPlannerProfileId: String(value) })}
                     disabled={amazonPlannerProfiles.length === 0}
                     options={amazonPlannerProfileOptions}
-                    className="w-full rounded-xl border border-blue-200/70 bg-white/80 px-3 py-2.5 text-sm text-blue-900 outline-none transition focus:border-blue-300 dark:border-blue-400/20 dark:bg-gray-950/40 dark:text-blue-100 dark:focus:border-blue-500/50"
+                    className="ios-field w-full px-3 py-2.5 text-sm text-[hsl(var(--primary))]"
                   />
                 )}
                 <div data-selectable-text className="mt-2 text-xs leading-relaxed text-blue-800 dark:text-blue-200">
@@ -1587,6 +1597,9 @@ export default function SettingsModal() {
                 )}
               </div>
 
+              <section>
+                <div className="ios-group-title">Connection Details</div>
+                <div className="ios-settings-fields ios-group">
               {/* 1. 配置名称 */}
               <label className="block">
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">配置名称</span>
@@ -1595,7 +1608,7 @@ export default function SettingsModal() {
                   onChange={(e) => updateActiveProfile({ name: e.target.value })}
                   onBlur={(e) => commitActiveProfilePatch({ name: e.target.value })}
                   type="text"
-                  className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                  className="ios-field w-full px-3 py-2.5 text-sm"
                 />
               </label>
 
@@ -1607,7 +1620,7 @@ export default function SettingsModal() {
                   onChange={handleProviderTypeChange}
                   onReorder={handleProviderReorder}
                   options={providerOptions}
-                  className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                  className="ios-field w-full px-3 py-2.5 text-sm"
                 />
               </div>
 
@@ -1624,7 +1637,7 @@ export default function SettingsModal() {
                     type="text"
                     disabled={apiProxyEnabled}
                     placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_BASE_URL : DEFAULT_SETTINGS.baseUrl}
-                    className={`w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 ${apiProxyEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`ios-field w-full px-3 py-2.5 text-sm ${apiProxyEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   />
                   <div data-selectable-text className="mt-1.5 min-h-[22px] flex items-center text-xs text-gray-500 dark:text-gray-500">
                     {apiProxyEnabled ? (
@@ -1673,7 +1686,7 @@ export default function SettingsModal() {
                     onBlur={(e) => commitActiveProfilePatch({ apiKey: e.target.value })}
                     type={showApiKey ? 'text' : 'password'}
                     placeholder={activeProfile.provider === 'fal' ? 'FAL_KEY' : 'sk-...'}
-                    className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 pr-10 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                    className="ios-field w-full px-3 py-2.5 pr-10 text-sm"
                   />
                   <button
                     type="button"
@@ -1720,7 +1733,7 @@ export default function SettingsModal() {
                       { label: 'Responses API (/v1/responses)', value: 'responses' },
                       { label: 'Chat Completions (/chat/completions)', value: 'chat' },
                     ]}
-                    className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                    className="ios-field w-full px-3 py-2.5 text-sm"
                   />
                   <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
                     支持通过查询参数覆盖：<code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">apiMode=images</code>、<code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">apiMode=responses</code> 或 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">apiMode=chat</code>。
@@ -1739,7 +1752,7 @@ export default function SettingsModal() {
                   onBlur={(e) => commitActiveProfilePatch({ model: e.target.value })}
                   type="text"
                   placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode)}
-                  className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                  className="ios-field w-full px-3 py-2.5 text-sm"
                 />
                 <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
                   {activeProfile.provider === 'fal' ? (
@@ -1818,10 +1831,12 @@ export default function SettingsModal() {
                     type="number"
                     min={10}
                     max={600}
-                    className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                    className="ios-field w-full px-3 py-2.5 text-sm"
                   />
                 </label>
               )}
+                </div>
+              </section>
             </div>
             )}
             
@@ -2034,14 +2049,17 @@ export default function SettingsModal() {
       </div>
 
         {showCustomProviderImport && createPortal(
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in" onClick={() => {
+          <Sheet
+            rootClassName="z-[100]"
+            className="flex h-[85vh] max-h-[90vh] max-w-md flex-col overflow-hidden p-5 pt-8 sm:h-[680px]"
+            onClose={() => {
               setShowCustomProviderImport(false)
               setEditingCustomProviderId(null)
-            }} />
-            <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
+            }}
+            labelledBy="custom-provider-sheet-title"
+          >
               <div className="mb-5 flex items-center justify-between gap-4 shrink-0">
-                <h3 className="text-base font-bold text-gray-800 dark:text-gray-100">
+                <h3 id="custom-provider-sheet-title" className="text-base font-bold text-gray-800 dark:text-gray-100">
                   {editingCustomProviderId ? '编辑自定义服务商' : '创建自定义服务商'}
                 </h3>
                 <div className="flex items-center gap-3">
@@ -2126,7 +2144,7 @@ export default function SettingsModal() {
                     value={customProviderForm.json}
                     onChange={(e) => updateCustomProviderForm({ json: e.target.value })}
                     spellCheck={false}
-                    className="flex-1 min-h-[150px] w-full resize-none rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 font-mono text-xs leading-relaxed text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 custom-scrollbar"
+                    className="ios-field custom-scrollbar min-h-[150px] w-full flex-1 resize-none px-3 py-2 font-mono text-xs leading-relaxed"
                   />
                 </label>
               </div>
@@ -2156,12 +2174,11 @@ export default function SettingsModal() {
                   {editingCustomProviderId ? '保存修改' : '创建并使用'}
                 </button>
               </div>
-            </div>
-          </div>
+          </Sheet>
           , document.body)}
         {profileTouchDragPreview && createPortal(
           <div
-            className="fixed pointer-events-none z-[110] flex items-center justify-between gap-2 rounded-xl bg-white/95 px-3 py-2 text-xs text-gray-700 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:bg-gray-900/95 dark:text-gray-300 dark:ring-white/10"
+            className="ios-floating-chrome fixed pointer-events-none z-[110] flex items-center justify-between gap-2 px-3 py-2 text-xs text-foreground"
             style={{
               left: profileTouchDragPreview.x - profileTouchDragPreview.offsetX,
               top: profileTouchDragPreview.y - profileTouchDragPreview.offsetY,
@@ -2180,16 +2197,12 @@ export default function SettingsModal() {
           document.body,
         )}
         {copyImportUrlProfile && createPortal(
-          <div
-            data-no-drag-select
-            className="fixed inset-0 z-[110] flex items-center justify-center p-4"
-            onClick={() => setCopyImportUrlProfile(null)}
+          <Sheet
+            rootClassName="z-[110]"
+            className="max-w-sm p-6 pt-9"
+            onClose={() => setCopyImportUrlProfile(null)}
+            labelledBy="copy-import-url-sheet-title"
           >
-            <div className="absolute inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-md animate-overlay-in" />
-            <div
-              className="relative bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/50 dark:border-white/[0.08] rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in"
-              onClick={(e) => e.stopPropagation()}
-            >
               <button
                 type="button"
                 onClick={() => setCopyImportUrlProfile(null)}
@@ -2199,8 +2212,8 @@ export default function SettingsModal() {
                 <CloseIcon className="h-5 w-5" />
               </button>
 
-              <h3 className="mb-3 pr-8 flex items-start gap-2.5 text-base font-bold text-gray-800 dark:text-gray-100 leading-snug">
-                <CopyIcon className="h-5 w-5 shrink-0 text-blue-500 mt-0.5" />
+              <h3 id="copy-import-url-sheet-title" className="mb-3 pr-8 flex items-start gap-2.5 text-base font-bold text-gray-800 dark:text-gray-100 leading-snug">
+                <CopyIcon className="h-5 w-5 shrink-0 text-[hsl(var(--primary))] mt-0.5" />
                 <span>复制导入配置「{copyImportUrlProfile.name}」的 URL</span>
               </h3>
               <div className="text-[13px] text-gray-500 dark:text-gray-400 mb-5 leading-relaxed">
@@ -2250,8 +2263,7 @@ export default function SettingsModal() {
                   包含 API Key
                 </button>
               </div>
-            </div>
-          </div>,
+          </Sheet>,
           document.body,
         )}
     </div>

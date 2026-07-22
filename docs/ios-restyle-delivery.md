@@ -169,3 +169,67 @@ No above-the-fold product copy or information hierarchy was intentionally change
 
 The real third-party image providers were not called because no user key was supplied or required by the brief. The repository mock verifies request submission, streamed completion, persisted task rendering, and detail inspection without changing production provider code.
 
+## V2 component-layer completion (2026-07-23)
+
+The second pass keeps the first-pass tokens, header, and sheet direction intact, then applies those decisions to the entire component layer. No store, provider adapter, prompt, marketplace rule, persisted data shape, or API contract was changed.
+
+### Objective DOM audit
+
+The supplied acceptance script was executed against the running development build. The dark desktop result includes the persisted mock task used for functional regression; the light result was captured in Microsoft Edge with `prefers-color-scheme: light`.
+
+| Metric | V2 before | V2 after dark | V2 after light | Threshold |
+| --- | ---: | ---: | ---: | ---: |
+| Hard-bordered fields | 19 / 24 | 0 / 24 | 0 / 24 | 0 |
+| Backdrop-filter elements | 4 | 13 | 10 | at least 8 |
+| iOS radii (14 / 20 / 26 px) | 4 | 70 | 67 | clearly greater than small radii |
+| Small radii (6 / 8 px) | 27 | 0 | 0 | less than iOS radii |
+| Horizontal overflow | not recorded | 0 px | 0 px | 0 px |
+
+Settings and detail sheets were also checked independently: every visible form field had no solid border, the panel radius computed to 26 px, the panel material computed to `blur(30px) saturate(1.35)`, the backdrop computed to `blur(18px) saturate(1.15)`, and each sheet contained a 36 x 5 px grabber.
+
+### Nine V2 gaps closed
+
+- [x] All `input`, `select`, and `textarea` controls use filled, borderless field treatment with semantic primary focus rings.
+- [x] Legacy 6 / 8 px radii are normalized to the 10 / 14 / 20 / 26 px system.
+- [x] Composer, menus, tooltips, toast, lightbox chrome, drag previews, mask tools, and every sheet use glass material tokens.
+- [x] Native selects use a filled pill trigger and quiet chevron; custom selects use the shared glass menu.
+- [x] Listing / A+, 2K / 4K, and size controls use a gray segmented track with an elevated active slice.
+- [x] Planner inputs and Settings connection fields are organized as inset grouped sections with hairline separators and uppercase section labels.
+- [x] Settings, detail, help, size, confirmation, support, style-reference, nested provider, and raw-data dialogs share the bottom-sheet shell, grabber, backdrop dismissal, and downward drag behavior.
+- [x] Legacy transition utilities resolve to the 260 ms iOS easing curve and the global reduced-motion override remains active.
+- [x] Field focus styling no longer uses Tailwind blue border classes; interaction focus resolves through `--primary`.
+
+### V2 component changes
+
+| Area | Components | Result |
+| --- | --- | --- |
+| Form primitives | `SearchBar`, `Select`, `Checkbox`, native fields | filled controls, semantic focus, 14 px continuous radii |
+| Grouped forms | `AmazonPlanner`, `SettingsModal`, `SizePickerModal`, `StyleReferenceEditorModal`, `DetailModal` | inset groups, hairline rows, quiet section hierarchy |
+| Work surfaces | `TaskCard`, `AgentWorkspace`, `InputBar` | 20 px cards and persistent command material without hard outlines |
+| Floating chrome | `HistoryModal`, `ImageContextMenu`, `ViewportTooltip`, `Toast`, select menus | shared glass, soft shadow, consistent motion |
+| Media overlays | `Lightbox`, `MaskEditorModal` | stronger backdrop blur and glass tool chrome |
+| Sheet family | `Sheet`, `SettingsModal`, `DetailModal` and nested dialogs | 26 px top corners, grabber, bottom anchoring, drag/backdrop close |
+
+### V2 functional and visual regression
+
+- `npm test`: 19 files, 252 tests passed.
+- `npm run build`: 243 modules transformed; production build completed. The pre-existing bundle-size advisory remains non-blocking.
+- Repository mock API: a new image task was submitted and completed; task-card count increased from 1 to 2 and the completion toast rendered.
+- Marketplace switching: `us -> jp -> us` preserved the selected value; Listing / A+ mode switched and returned successfully.
+- Detail, confirmation, help, Settings, menus, toast, and mobile sheet presentation were opened and inspected in the browser.
+- Dark and light appearances were checked at 1440 x 900 and 390 x 844 with zero horizontal overflow.
+- Source-boundary check confirmed no V2 changes under `src/store.ts` or `src/lib/`.
+
+### V2 fidelity ledger
+
+| Apple principle | Implementation evidence | Deliberate adaptation |
+| --- | --- | --- |
+| No harsh borders | 0 of 24 live fields compute a solid border | hairlines remain only between grouped rows |
+| Continuous geometry | 14 / 20 / 26 px radii dominate; 6 / 8 px count is zero | compact icon controls retain circles or 10 px radii |
+| Material hierarchy | 10-13 live blur surfaces plus layered semantic shadows | dense desktop panels keep opaque-enough text contrast |
+| Grouped settings | planner and Settings fields are inset lists with section labels | desktop keeps the two-pane Settings navigation |
+| Calm motion | shared 260 ms ease, subtle rise/fade, no spring | task state updates remain immediate for operational clarity |
+| Desktop-first density | three-pane workbench remains at 1440 px | only <= 640 px collapses to one column and bottom sheets |
+| Light/dark parity | same semantic roles and geometry in both media modes | dark blue tint opacity is reduced to prevent large saturated blocks |
+
+The only new visible copy is structural section labeling (`Product Profile`, `Selling Story`, `Guardrails`, and `Connection Details`) required to express the grouped iOS form pattern; all business copy and behavior remain unchanged.

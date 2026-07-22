@@ -12,15 +12,7 @@ interface SheetProps {
 
 const DISMISS_DISTANCE = 72
 
-export function Sheet({
-  children,
-  onClose,
-  className = '',
-  rootClassName = 'z-[70]',
-  panelRef,
-  labelledBy,
-  closeOnBackdrop = true,
-}: SheetProps) {
+export function useSheetDrag(onClose: () => void) {
   const dragStartY = useRef<number | null>(null)
   const dragOffsetRef = useRef(0)
   const [dragOffset, setDragOffset] = useState(0)
@@ -39,9 +31,7 @@ export function Sheet({
 
   const finishDrag = () => {
     dragStartY.current = null
-    if (dragOffsetRef.current >= DISMISS_DISTANCE) {
-      onClose()
-    }
+    if (dragOffsetRef.current >= DISMISS_DISTANCE) onClose()
     dragOffsetRef.current = 0
     setDragOffset(0)
   }
@@ -49,6 +39,28 @@ export function Sheet({
   const panelStyle: CSSProperties | undefined = dragOffset
     ? { transform: `translateY(${dragOffset}px)`, transition: 'none' }
     : undefined
+
+  return {
+    panelStyle,
+    dragHandleProps: {
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: finishDrag,
+      onPointerCancel: finishDrag,
+    },
+  }
+}
+
+export function Sheet({
+  children,
+  onClose,
+  className = '',
+  rootClassName = 'z-[70]',
+  panelRef,
+  labelledBy,
+  closeOnBackdrop = true,
+}: SheetProps) {
+  const { panelStyle, dragHandleProps } = useSheetDrag(onClose)
 
   return (
     <div
@@ -66,10 +78,7 @@ export function Sheet({
       <div ref={panelRef} className={`ios-sheet-panel ${className}`} style={panelStyle}>
         <div
           className="ios-sheet-grabber-zone"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={finishDrag}
-          onPointerCancel={finishDrag}
+          {...dragHandleProps}
           aria-hidden="true"
         >
           <span className="ios-sheet-grabber" />
