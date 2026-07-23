@@ -4,6 +4,7 @@ import type { AgentConversation } from '../types'
 import { useTooltip } from '../hooks/useTooltip'
 import { CloseIcon, EditIcon, TrashIcon } from './icons'
 import ViewportTooltip from './ViewportTooltip'
+import { useSheetDrag } from './Sheet'
 
 function HistoryActionButton({
   tooltip,
@@ -87,6 +88,7 @@ type HistoryModalProps = {
 }
 
 export default function HistoryModal({ onClose, ignoreOutsideClickRef }: HistoryModalProps) {
+  const { panelStyle, dragHandleProps } = useSheetDrag(onClose)
   const conversations = useStore((s) => s.agentConversations)
   const activeConversationId = useStore((s) => s.activeAgentConversationId)
   const setActiveConversationId = useStore((s) => s.setActiveAgentConversationId)
@@ -224,9 +226,16 @@ export default function HistoryModal({ onClose, ignoreOutsideClickRef }: History
   return (
     <div 
       ref={modalRef}
-      className="absolute top-12 left-0 w-80 sm:w-96 max-w-[calc(100vw-2rem)] max-h-[70vh] bg-white dark:bg-[#1c1c1e] rounded-xl shadow-2xl overflow-hidden flex flex-col border border-gray-200 dark:border-white/10 z-50 text-gray-900 dark:text-gray-200 animate-dropdown-down"
+      data-history-sheet
+      className="ios-menu absolute left-0 top-12 z-50 flex max-h-[70vh] w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden text-gray-900 animate-dropdown-down dark:text-gray-200 sm:w-96"
+      style={panelStyle}
+      role="dialog"
+      aria-modal="true"
     >
-      <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-white/10 shrink-0">
+      <div className="ios-sheet-grabber-zone sm:hidden" {...dragHandleProps} aria-hidden="true">
+        <span className="ios-sheet-grabber" />
+      </div>
+      <div className="flex shrink-0 items-center justify-between border-b border-[hsl(var(--separator))] p-3">
         <input 
           type="text" 
           placeholder="搜索聊天..." 
@@ -249,7 +258,7 @@ export default function HistoryModal({ onClose, ignoreOutsideClickRef }: History
             {items.map(c => (
               <div 
                 key={c.id} 
-                className="group flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                className="group flex min-h-11 cursor-pointer items-center justify-between gap-2 rounded-[var(--ios-radius-md)] px-3 py-2.5 transition-colors hover:bg-[hsl(var(--muted))]"
                 onClick={() => handleSelect(c.id)}
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -259,7 +268,7 @@ export default function HistoryModal({ onClose, ignoreOutsideClickRef }: History
                   {editingId === c.id ? (
                     <input
                       type="text"
-                      className="flex-1 bg-white dark:bg-black/20 border border-blue-400/50 dark:border-white/20 rounded px-1.5 py-0.5 text-sm outline-none text-gray-900 dark:text-white focus:border-blue-500 dark:focus:border-white/40 shadow-sm min-w-0"
+                      className="ios-field min-w-0 flex-1 px-2 py-1 text-sm"
                       value={editingTitle}
                       onChange={(e) => setEditingTitle(e.target.value)}
                       onKeyDown={handleRenameKeyDown}

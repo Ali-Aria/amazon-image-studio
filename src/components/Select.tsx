@@ -130,7 +130,7 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
     }
   }, [isOpen])
 
-  const handleToggle = (e: React.MouseEvent) => {
+  const handleToggle = (e: React.SyntheticEvent) => {
     if (disabled) return
     e.preventDefault()
     e.stopPropagation()
@@ -155,7 +155,14 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
       <div
         ref={triggerRef}
         onClick={handleToggle}
-        className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none ${className ?? ''} ${
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') handleToggle(event)
+        }}
+        role="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        tabIndex={disabled ? -1 : 0}
+        className={`ios-select-trigger flex w-full cursor-pointer select-none items-center justify-between gap-1 ${className ?? ''} ${
           disabled ? '!opacity-50 !cursor-not-allowed !bg-gray-100/50 dark:!bg-white/[0.05]' : ''
         }`}
       >
@@ -165,7 +172,8 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
 
       {isOpen && (
         <div
-          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-gray-200/60 bg-white/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar ${
+          role="listbox"
+          className={`ios-menu absolute z-50 w-full overflow-hidden overflow-y-auto py-1 custom-scrollbar ${
             placement === 'top' ? 'bottom-full mb-1.5 animate-dropdown-up' : 'top-full mt-1.5 animate-dropdown-down'
           }`}
           style={{ maxHeight: menuMaxHeight }}
@@ -328,15 +336,17 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
                 onChange(option.value)
                 setIsOpen(false)
               }}
-              className={`relative flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs transition-colors ${
+              role="option"
+              aria-selected={option.value === value}
+              className={`relative flex min-h-11 cursor-pointer items-center justify-between gap-2 border-t border-[hsl(var(--separator))] px-3 py-2.5 text-xs transition-colors first:border-t-0 ${
                 draggedValue === option.value
                   ? 'opacity-40 bg-gray-100 dark:bg-white/[0.04]'
                   : option.variant === 'action'
-                  ? 'font-semibold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10'
+                  ? 'font-semibold text-[hsl(var(--primary))] hover:bg-[hsl(var(--ios-blue-tint))]'
                   : option.variant === 'danger'
                   ? 'font-semibold text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10'
                   : option.value === value
-                  ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium'
+                  ? 'bg-[hsl(var(--ios-blue-tint))] text-[hsl(var(--primary))] font-medium'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.06]'
               }`}
             >
@@ -403,7 +413,7 @@ export default function Select({ value, onChange, onReorder, options, disabled, 
       {touchDragPreview && createPortal(
         <div
           id="touch-drag-preview"
-          className="fixed pointer-events-none z-[110] flex items-center justify-between gap-2 rounded-xl bg-white/95 px-3 py-2 text-xs text-gray-700 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:bg-gray-900/95 dark:text-gray-300 dark:ring-white/10"
+          className="ios-floating-chrome fixed pointer-events-none z-[110] flex items-center justify-between gap-2 px-3 py-2 text-xs text-foreground"
           style={{
             left: touchDragPreview.x - touchDragPreview.offsetX,
             top: touchDragPreview.y - touchDragPreview.offsetY,

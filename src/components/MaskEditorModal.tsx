@@ -842,9 +842,9 @@ export default function MaskEditorModal() {
 
   return (
     <>
-      <div data-no-drag-select className="fixed inset-0 z-[80] flex flex-col bg-gray-50 dark:bg-gray-900 animate-modal-in">
+      <div data-no-drag-select className="fixed inset-0 z-[80] flex flex-col bg-background animate-fade-in">
       {/* Header */}
-      <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950 z-20">
+      <div className="ios-material z-20 flex flex-none items-center justify-between rounded-none px-4 py-3">
         <div className="flex items-center gap-3">
           <button onClick={close} disabled={isSaving} className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-lg dark:text-gray-400 dark:hover:bg-gray-800 transition" title="取消">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
@@ -867,8 +867,7 @@ export default function MaskEditorModal() {
               </svg>
             </button>
             {showMaskInfo && (
-              <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-gray-200/80 bg-white px-3 py-2 text-xs leading-5 text-gray-600 shadow-lg dark:border-white/[0.08] dark:bg-gray-900 dark:text-gray-300">
-                <div className="absolute -top-1.5 left-16 h-3 w-3 rotate-45 border-l border-t border-gray-200/80 bg-white dark:border-white/[0.08] dark:bg-gray-900" />
+              <div className="ios-menu absolute left-0 top-full mt-2 w-64 px-3 py-2 text-xs leading-5 text-muted-foreground">
                 <p>根据官方文档说明，此功能仅基于提示词，无法完全控制模型编辑区域。</p>
                 <p className="mt-2">建议附加类似“只编辑遮罩区域”的提示词以提升模型指令遵循程度。</p>
               </div>
@@ -931,7 +930,7 @@ export default function MaskEditorModal() {
 
         {/* Footer Toolbar */}
         <div className="absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 flex items-center justify-center z-20 pointer-events-none w-full px-2 sm:px-4">
-          <div className="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-1.5 sm:py-2 bg-white/95 dark:bg-[#0f0f0f]/95 backdrop-blur-md border border-gray-200/80 dark:border-white/5 rounded-2xl sm:rounded-[1.25rem] shadow-2xl pointer-events-auto">
+          <div className="ios-floating-chrome flex items-center gap-2 px-2 py-1.5 pointer-events-auto sm:gap-4 sm:px-3 sm:py-2">
             <div className="flex items-center gap-1.5 sm:gap-3">
               <div className="flex items-center bg-gray-100/80 dark:bg-[#232325]/80 p-1 rounded-xl sm:rounded-[14px]">
                 <button
@@ -1009,7 +1008,7 @@ export default function MaskEditorModal() {
       {showBrushControls && sliderAnchor && createPortal(
         <div
           ref={brushSizePanelRef}
-          className="fixed z-[100] h-44 w-14 -translate-x-1/2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700"
+          className="ios-floating-chrome fixed z-[100] h-44 w-14 -translate-x-1/2"
           style={{ left: sliderAnchor.left, bottom: sliderAnchor.bottom }}
         >
           <input

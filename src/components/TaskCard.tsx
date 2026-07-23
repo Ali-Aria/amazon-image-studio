@@ -355,10 +355,10 @@ export default function TaskCard({
   const previewImageClass = useWidePreviewLayout ? 'h-full w-full object-contain' : 'w-full h-full object-cover'
 
   return (
-    <div className="relative rounded-xl">
+    <div className="relative rounded-[var(--ios-radius-lg)]">
       {/* 侧滑底图 */}
       <div
-        className={`absolute inset-0 rounded-xl flex items-center transition-opacity duration-200 pointer-events-none ${
+        className={`absolute inset-0 rounded-[var(--ios-radius-lg)] flex items-center transition-opacity pointer-events-none ${
           isSwiping || swipeDirection !== 0 || swipeActionActive ? 'opacity-100' : 'opacity-0'
         } ${swipeBgClass} ${
           swipeDirection > 0 ? 'justify-start pl-6' : 'justify-end pr-6'
@@ -375,16 +375,16 @@ export default function TaskCard({
 
       <div
         ref={cardRef}
-        className={`relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden cursor-pointer touch-pan-y will-change-transform duration-200 hover:shadow-lg dark:hover:bg-gray-800/80 ${
+        className={`ios-card relative overflow-hidden cursor-pointer touch-pan-y will-change-transform hover:-translate-y-0.5 hover:shadow-[var(--ios-shadow-2)] ${
           isSwiping ? '!bg-white dark:!bg-gray-900' : ''
         } ${
-          !isSwiping ? 'transition-[box-shadow,border-color,background-color,transform]' : 'transition-[box-shadow,border-color,background-color]'
+          !isSwiping ? 'transition-[box-shadow,background-color,transform]' : 'transition-[box-shadow,background-color]'
         } ${
           task.status === 'running'
-            ? 'border-blue-400 generating'
+            ? 'ring-2 ring-[hsl(var(--primary)/0.55)] generating'
             : isSelected
-            ? 'border-blue-500 shadow-md ring-2 ring-blue-500/50'
-            : 'border-gray-200 dark:border-white/[0.08] hover:border-gray-300 dark:hover:border-white/[0.18]'
+            ? 'shadow-[var(--ios-shadow-2)] ring-2 ring-[hsl(var(--primary)/0.55)]'
+            : ''
         }`}
         onClick={(e) => {
           if (Date.now() < suppressClickUntilRef.current) {
@@ -420,7 +420,7 @@ export default function TaskCard({
       >
         {/* 选中时的角标 */}
       {isSelected && (
-        <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow-sm">
+        <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-[hsl(var(--primary))] rounded-full flex items-center justify-center shadow-sm">
           <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
           </svg>

@@ -198,20 +198,20 @@ export default function ImageContextMenu() {
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 w-[120px] overflow-hidden animate-fade-in"
+      className="ios-menu fixed z-[9999] w-36 overflow-hidden py-1 animate-fade-in"
       style={{ left, top }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <button
         onClick={handleCopy}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        className="flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <CopyIcon className="w-4 h-4 flex-shrink-0" />
         复制
       </button>
       <button
         onClick={handleDownload}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <DownloadIcon className="w-4 h-4 flex-shrink-0" />
         下载
@@ -219,7 +219,7 @@ export default function ImageContextMenu() {
       {showDownloadAll && (
         <button
           onClick={handleDownloadAll}
-          className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+          className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
         >
           <DownloadIcon className="w-4 h-4 flex-shrink-0" />
           下载全部
@@ -227,7 +227,7 @@ export default function ImageContextMenu() {
       )}
       <button
         onClick={handleEdit}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <EditIcon className="w-4 h-4 flex-shrink-0" />
         编辑

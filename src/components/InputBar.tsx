@@ -514,7 +514,7 @@ export default function InputBar() {
   const [submitHover, setSubmitHover] = useState(false)
   const [attachHover, setAttachHover] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
-  const [mobileCollapsed, setMobileCollapsed] = useState(false)
+  const [mobileCollapsed, setMobileCollapsed] = useState(true)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [showMobileUploadMenu, setShowMobileUploadMenu] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
@@ -1419,7 +1419,7 @@ export default function InputBar() {
     }
   }, [])
 
-  const selectClass = 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] text-xs transition-all duration-200 shadow-sm'
+  const selectClass = 'ios-select-trigger px-3 py-1.5 text-xs'
 
   const getTouchDropIndex = (touch: React.Touch) => {
     const target = document
@@ -1771,7 +1771,7 @@ export default function InputBar() {
         </div>
         {touchDragPreview?.src && createPortal(
           <div
-            className="fixed z-[140] h-[52px] w-[52px] overflow-hidden rounded-xl shadow-xl pointer-events-none opacity-90"
+            className="ios-floating-chrome fixed z-[140] h-[52px] w-[52px] overflow-hidden pointer-events-none opacity-90"
             style={{ left: touchDragPreview.x, top: touchDragPreview.y, transform: 'translate(-50%, -50%)' }}
           >
             <img src={touchDragPreview.src} className="h-full w-full object-cover" alt="" />
@@ -2000,7 +2000,7 @@ export default function InputBar() {
       <div data-input-bar className="home-input-dock pointer-events-none fixed bottom-4 left-1/2 z-30 w-full max-w-4xl -translate-x-1/2 px-3 transition-all duration-300 sm:bottom-6 sm:px-4 lg:bottom-6 lg:left-auto lg:top-20 lg:flex lg:max-w-none lg:translate-x-0 lg:flex-col lg:px-0">
         {selectedTaskIds.length > 0 && (
           <div className="mb-3 flex justify-center lg:justify-end">
-            <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-gray-200/50 dark:border-white/10 pointer-events-auto">
+            <div className="ios-floating-chrome pointer-events-auto flex items-center rounded-full p-1">
               <button
                 onClick={clearSelection}
                 className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
@@ -2066,7 +2066,7 @@ export default function InputBar() {
             </div>
           </div>
         )}
-        <div ref={cardRef} className="pointer-events-auto bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
+        <div ref={cardRef} className="ios-floating-chrome pointer-events-auto p-3 sm:p-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
           {/* 移动端拖动条 */}
           <div
             ref={handleRef}
@@ -2105,7 +2105,7 @@ export default function InputBar() {
           {/* 输入框 */}
           <div className="relative grid lg:min-h-0 lg:flex-1">
             {showAtImageMenu && (
-              <div style={{ left: `${menuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
+              <div style={{ left: `${menuLeft}px` }} className="ios-menu absolute bottom-full z-50 mb-2 w-64 overflow-hidden p-1.5">
                 <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">选择图片引用</div>
                 <div className="max-h-56 overflow-y-auto custom-scrollbar">
                   {atImageOptions.map((option, optionIndex) => (
@@ -2176,7 +2176,7 @@ export default function InputBar() {
                 syncMentionTagSelection(el)
               }}
               aria-label={promptPlaceholder}
-              className="col-start-1 row-start-1 min-h-[42px] w-full overflow-hidden ios-rounded-scroll-fix whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 pl-4 pr-10 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30 lg:h-full"
+              className="ios-field col-start-1 row-start-1 min-h-[42px] w-full overflow-hidden ios-rounded-scroll-fix whitespace-pre-wrap break-words pl-4 pr-10 py-3 text-sm leading-relaxed dark:text-gray-100 lg:h-full"
             />
             {prompt.length === 0 && (
               <div className="prompt-placeholder col-start-1 row-start-1 pointer-events-none pl-4 pr-10 py-3 text-sm leading-relaxed text-gray-400 dark:text-gray-500">
@@ -2302,7 +2302,7 @@ export default function InputBar() {
                         className="fixed inset-0 z-40"
                         onClick={() => setShowMobileUploadMenu(false)}
                       />
-                      <div className="absolute bottom-full left-0 mb-2 w-32 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      <div className="ios-menu absolute bottom-full left-0 z-50 mb-2 w-32 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                         <button
                           className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
                           onClick={() => {
