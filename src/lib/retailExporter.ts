@@ -10,6 +10,7 @@ const SLOT_FILE_NAMES: Record<RetailSlotId, string> = {
   '05-scene': '05_使用场景',
   '06-specification': '06_规格信息',
   '07-detail-page': '07_详情长图',
+  '08-special': '08_特殊图',
 }
 
 export function safeRetailFileSegment(value: string) {

@@ -65,6 +65,7 @@ function slotDefinition(id: RetailSlotId, archetype: RetailArchetype, product: R
     '05-scene': { label: '使用场景', objective: '展示真实消费或使用场景，不添加未售卖商品', composeMode: 'none' },
     '06-specification': { label: '规格信息', objective: '呈现可核验的销售属性与规格', composeMode: 'specification' },
     '07-detail-page': { label: '详情长图', objective: '汇总商品、规格、使用与储存信息', composeMode: 'detail' },
+    '08-special': { label: '平台特殊图', objective: '按可信商品资料生成类目适配信息图', composeMode: 'none' },
   } as const
   const base = defaults[id]
   return {

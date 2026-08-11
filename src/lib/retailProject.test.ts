@@ -8,13 +8,16 @@ import {
 } from './retailProject'
 
 describe('retail project state', () => {
-  it('creates a recoverable project with all seven independent slots', () => {
+  it('creates a recoverable project with seven base slots and one optional special slot', () => {
     const project = createRetailProject(100)
 
     expect(project.product.platform).toBe('meituan')
     expect(project.platformPresetId).toBe('meituan-square')
     expect(project.concurrency).toBe(2)
-    expect(project.slots).toHaveLength(7)
+    expect(project.slots).toHaveLength(8)
+    expect(project.slots.at(-1)?.slotId).toBe('08-special')
+    expect(project.specialImageType).toBe('auto')
+    expect(project.sourceImageRoles).toEqual({})
     expect(project.slots.every((slot) => slot.status === 'idle')).toBe(true)
   })
 
@@ -27,8 +30,28 @@ describe('retail project state', () => {
 
     expect(normalized.id).toBe('saved')
     expect(normalized.product.name).toBe('可口可乐 330ml')
-    expect(normalized.slots).toHaveLength(7)
+    expect(normalized.slots).toHaveLength(8)
     expect(normalized.slots[0]).toMatchObject({ status: 'done', outputImageId: 'image-a' })
+    expect(normalized.slots.at(-1)).toMatchObject({ slotId: '08-special', status: 'idle' })
+  })
+
+  it('preserves valid source roles and drops roles for missing images', () => {
+    const normalized = normalizeRetailProject({
+      id: 'roles',
+      sourceImageIds: ['product-a', 'label-a'],
+      sourceImageRoles: {
+        'product-a': 'product',
+        'label-a': 'back_label',
+        'missing-a': 'authentic_document',
+      },
+      specialImageType: 'back_label',
+    }, 200)
+
+    expect(normalized.sourceImageRoles).toEqual({
+      'product-a': 'product',
+      'label-a': 'back_label',
+    })
+    expect(normalized.specialImageType).toBe('back_label')
   })
 
   it('clears a paused local queue that cannot survive a browser restart', () => {
@@ -45,6 +68,7 @@ describe('retail project state', () => {
   it('collects every source, generated, and composed image reference', () => {
     const project = createRetailProject(100)
     project.sourceImageIds = ['source-a', 'source-b']
+    project.sourceImageRoles = { 'source-a': 'product', 'source-b': 'authentic_document' }
     project.slots[0] = {
       ...project.slots[0],
       outputImageId: 'output-a',

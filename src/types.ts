@@ -178,6 +178,7 @@ export type RetailSlotId =
   | '05-scene'
   | '06-specification'
   | '07-detail-page'
+  | '08-special'
 
 export type RetailFactSource = 'user' | 'pool' | 'package' | 'ocr' | 'derived'
 export type RetailComposeMode = 'none' | 'selling-points' | 'specification' | 'detail'
@@ -336,6 +337,8 @@ export interface RetailProject {
   title: string
   product: RetailProduct
   sourceImageIds: string[]
+  sourceImageRoles: Record<string, RetailSourceImageRole>
+  specialImageType: RetailSpecialImageType | 'auto'
   platformPresetId: string
   styleId: string
   concurrency: number

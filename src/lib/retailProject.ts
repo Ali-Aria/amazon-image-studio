@@ -1,6 +1,8 @@
 import type {
   RetailProject,
   RetailProjectSlot,
+  RetailSourceImageRole,
+  RetailSpecialImageType,
   RetailSlotId,
   TaskRecord,
 } from '../types'
@@ -8,6 +10,17 @@ import { RETAIL_SLOT_IDS } from './retailPlanner'
 import { createEmptyRetailProduct } from './retailProduct'
 
 export const RETAIL_PROJECTS_CHANGED_EVENT = 'instant-retail-projects-changed'
+
+const RETAIL_PROJECT_SLOT_IDS: RetailSlotId[] = [...RETAIL_SLOT_IDS, '08-special']
+const SOURCE_IMAGE_ROLES = new Set<RetailSourceImageRole>(['product', 'back_label', 'gift_pack', 'authentic_document'])
+const SPECIAL_IMAGE_TYPES = new Set<RetailSpecialImageType>([
+  'product_facts',
+  'dimension',
+  'size_guide',
+  'gift_pack',
+  'back_label',
+  'authentic_document',
+])
 
 function createProjectId() {
   return globalThis.crypto?.randomUUID?.() ?? `retail-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -19,12 +32,14 @@ export function createRetailProject(now = Date.now()): RetailProject {
     title: '新建商品图集',
     product: createEmptyRetailProduct(),
     sourceImageIds: [],
+    sourceImageRoles: {},
+    specialImageType: 'auto',
     platformPresetId: 'meituan-square',
     styleId: 'clean-retail',
     concurrency: 2,
     queuePaused: false,
     plans: [],
-    slots: RETAIL_SLOT_IDS.map(createEmptySlot),
+    slots: RETAIL_PROJECT_SLOT_IDS.map(createEmptySlot),
     createdAt: now,
     updatedAt: now,
   }
@@ -55,6 +70,12 @@ export function normalizeRetailProject(value: unknown, now = Date.now()): Retail
   const base = createRetailProject(now)
   const sourceProduct: Partial<RetailProject['product']> = source.product && typeof source.product === 'object' ? source.product : {}
   const incomingSlots = Array.isArray(source.slots) ? source.slots : []
+  const sourceImageIds = Array.isArray(source.sourceImageIds) ? source.sourceImageIds.filter((id): id is string => typeof id === 'string') : []
+  const sourceImageRoles = source.sourceImageRoles && typeof source.sourceImageRoles === 'object'
+    ? Object.fromEntries(Object.entries(source.sourceImageRoles).filter(
+      (entry): entry is [string, RetailSourceImageRole] => sourceImageIds.includes(entry[0]) && SOURCE_IMAGE_ROLES.has(entry[1] as RetailSourceImageRole),
+    ))
+    : {}
 
   return {
     ...base,
@@ -67,10 +88,15 @@ export function normalizeRetailProject(value: unknown, now = Date.now()): Retail
       sellingPoints: Array.isArray(sourceProduct.sellingPoints) ? sourceProduct.sellingPoints.filter((value: unknown): value is string => typeof value === 'string') : [],
       attributes: sourceProduct.attributes && typeof sourceProduct.attributes === 'object' ? sourceProduct.attributes : {},
       factSources: sourceProduct.factSources && typeof sourceProduct.factSources === 'object' ? sourceProduct.factSources : {},
+      factVerification: sourceProduct.factVerification && typeof sourceProduct.factVerification === 'object' ? sourceProduct.factVerification : {},
     },
-    sourceImageIds: Array.isArray(source.sourceImageIds) ? source.sourceImageIds.filter((id): id is string => typeof id === 'string') : [],
+    sourceImageIds,
+    sourceImageRoles,
+    specialImageType: source.specialImageType === 'auto' || SPECIAL_IMAGE_TYPES.has(source.specialImageType as RetailSpecialImageType)
+      ? source.specialImageType as RetailSpecialImageType | 'auto'
+      : 'auto',
     plans: Array.isArray(source.plans) ? source.plans : [],
-    slots: RETAIL_SLOT_IDS.map((slotId) => {
+    slots: RETAIL_PROJECT_SLOT_IDS.map((slotId) => {
       const candidate = incomingSlots.find((slot) => slot?.slotId === slotId)
       if (!candidate) return createEmptySlot(slotId)
 
