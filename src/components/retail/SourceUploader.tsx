@@ -1,14 +1,23 @@
 import { ImagePlus, Trash2, UploadCloud } from 'lucide-react'
-import type { InputImage } from '../../types'
+import type { InputImage, RetailSourceImageRole } from '../../types'
 
 interface SourceUploaderProps {
   images: InputImage[]
+  roles: Record<string, RetailSourceImageRole>
   disabled?: boolean
   onFiles: (files: File[]) => void
   onRemove: (id: string) => void
+  onRoleChange: (id: string, role: RetailSourceImageRole) => void
 }
 
-export default function SourceUploader({ images, disabled, onFiles, onRemove }: SourceUploaderProps) {
+const ROLE_LABELS: Record<RetailSourceImageRole, string> = {
+  product: '商品主体',
+  back_label: '包装背标',
+  gift_pack: '礼盒/外包装',
+  authentic_document: '真实证照材料',
+}
+
+export default function SourceUploader({ images, roles, disabled, onFiles, onRemove, onRoleChange }: SourceUploaderProps) {
   const handleFiles = (list: FileList | null) => {
     if (!list) return
     onFiles([...list].filter((file) => file.type.startsWith('image/')))
@@ -59,18 +68,27 @@ export default function SourceUploader({ images, disabled, onFiles, onRemove }: 
       {images.length > 0 && (
         <div className="retail-source-grid">
           {images.map((image, index) => (
-            <div className="retail-source-thumb" key={image.id}>
-              <img src={image.dataUrl} alt={`商品原图 ${index + 1}`} />
-              {index === 0 && <span>主体图</span>}
-              <button
-                type="button"
-                title="移除图片"
-                aria-label="移除图片"
+            <div className="retail-source-item" key={image.id}>
+              <div className="retail-source-thumb">
+                <img src={image.dataUrl} alt={`参考图 ${index + 1}`} />
+                <button
+                  type="button"
+                  title="移除图片"
+                  aria-label="移除图片"
+                  disabled={disabled}
+                  onClick={() => onRemove(image.id)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              <select
+                aria-label={`参考图 ${index + 1} 角色`}
+                value={roles[image.id] ?? 'product'}
                 disabled={disabled}
-                onClick={() => onRemove(image.id)}
+                onChange={(event) => onRoleChange(image.id, event.target.value as RetailSourceImageRole)}
               >
-                <Trash2 size={14} />
-              </button>
+                {Object.entries(ROLE_LABELS).map(([role, label]) => <option key={role} value={role}>{label}</option>)}
+              </select>
             </div>
           ))}
         </div>

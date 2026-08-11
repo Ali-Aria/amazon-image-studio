@@ -7,6 +7,7 @@ import type {
   RetailProduct,
   RetailProject,
   RetailProjectSlot,
+  RetailSourceImageRole,
   RetailSlotId,
 } from '../types'
 import { DEFAULT_PARAMS } from '../types'
@@ -21,14 +22,17 @@ import { createRetailImagePlan } from '../lib/retailPlanner'
 import { getRetailPlatformPreset } from '../lib/retailPlatform'
 import { createRetailProject, normalizeRetailProject, RETAIL_PROJECTS_CHANGED_EVENT, syncRetailProjectTasks } from '../lib/retailProject'
 import { loadRetailKnowledge, matchRetailCategory, type RetailKnowledgeIndex } from '../lib/retailKnowledge'
-import { validateRetailProduct } from '../lib/retailProduct'
+import { getTrustedRetailFacts, validateRetailProduct } from '../lib/retailProduct'
 import { RetailGenerationQueue } from '../lib/retailQueue'
 import { composeRetailImageDataUrl } from '../lib/retailComposer'
 import { dataUrlByteLength, evaluateRetailSlotQuality, type RetailImageMetadata, type RetailQualityReport } from '../lib/retailQuality'
 import { buildRetailProjectZip, downloadRetailProjectZip } from '../lib/retailExporter'
 import { ensureImageCached, submitPreparedTask, useStore, waitForTaskCompletion } from '../store'
+import { evaluateRetailSpecialImage } from '../lib/retailSpecialImage'
+import { getRetailGenerationTargets, selectRetailPlanInputs } from '../lib/retailSpecialExecution'
 import ProductPanel from './retail/ProductPanel'
 import SourceUploader from './retail/SourceUploader'
+import SpecialImageControls from './retail/SpecialImageControls'
 import PlatformControls from './retail/PlatformControls'
 import PlanBoard from './retail/PlanBoard'
 import QualityPanel from './retail/QualityPanel'
@@ -63,6 +67,19 @@ function readFileAsDataUrl(file: File) {
 function metadataFromStoredImage(image: { dataUrl: string; width?: number; height?: number }): RetailImageMetadata | null {
   if (!image.width || !image.height) return null
   return { width: image.width, height: image.height, bytes: dataUrlByteLength(image.dataUrl) }
+}
+
+function clearSpecialSlot(slot: RetailProjectSlot): RetailProjectSlot {
+  if (slot.slotId !== '08-special') return slot
+  return {
+    ...slot,
+    status: 'idle',
+    taskId: null,
+    outputImageId: null,
+    composedImageId: null,
+    error: null,
+    qualityStatus: 'unchecked',
+  }
 }
 
 export default function RetailStudio() {
@@ -196,22 +213,36 @@ export default function RetailStudio() {
     }))
   }, [categoryMatch, project.product.archetypeId])
 
+  const sourceImageRoles = useMemo(() => Object.fromEntries(
+    project.sourceImageIds.map((id) => [id, project.sourceImageRoles[id] ?? 'product']),
+  ) as Record<string, RetailSourceImageRole>, [project.sourceImageIds, project.sourceImageRoles])
+
+  const specialEvaluation = useMemo(() => evaluateRetailSpecialImage({
+    product: project.product,
+    archetype,
+    sourceImageRoles,
+    preferredType: project.specialImageType,
+  }), [archetype, project.product, project.specialImageType, sourceImageRoles])
+
   const plans = useMemo(
-    () => createRetailImagePlan(project.product, archetype, project.platformPresetId, project.styleId),
-    [archetype, project.platformPresetId, project.product, project.styleId],
+    () => createRetailImagePlan(project.product, archetype, project.platformPresetId, project.styleId, specialEvaluation),
+    [archetype, project.platformPresetId, project.product, project.styleId, specialEvaluation],
   )
 
   useEffect(() => {
-    const signature = plans.map((plan) => `${plan.id}:${plan.prompt}:${plan.copyLines.join('|')}`).join('\n')
-    const previous = project.plans.map((plan) => `${plan.id}:${plan.prompt}:${plan.copyLines.join('|')}`).join('\n')
+    const signature = plans.map((plan) => `${plan.id}:${plan.prompt}:${plan.copyLines.join('|')}:${plan.generationEligible}:${plan.specialImageType ?? ''}:${plan.processingMode}`).join('\n')
+    const previous = project.plans.map((plan) => `${plan.id}:${plan.prompt}:${plan.copyLines.join('|')}:${plan.generationEligible}:${plan.specialImageType ?? ''}:${plan.processingMode}`).join('\n')
     if (signature === previous) return
     setProject((current) => ({ ...current, plans, updatedAt: Date.now() }))
   }, [plans, project.plans])
 
   const productValidation = useMemo(() => validateRetailProduct(project.product, archetype), [archetype, project.product])
   const generating = project.slots.some((slot) => slot.status === 'queued' || slot.status === 'running')
-  const completed = project.slots.filter((slot) => slot.status === 'done').length
-  const canGenerate = sourceImages.length > 0 && productValidation.valid && plans.length === 7
+  const completed = project.slots.filter((slot) => slot.slotId !== '08-special' && slot.status === 'done').length
+  const specialDone = project.slots.find((slot) => slot.slotId === '08-special')?.status === 'done'
+  const canGenerate = sourceImages.some((image) => sourceImageRoles[image.id] === 'product')
+    && productValidation.valid
+    && plans.filter((plan) => plan.id !== '08-special').length === 7
   const preset = getRetailPlatformPreset(project.platformPresetId)
   const resolveSlotImageId = (slot: RetailProjectSlot) => {
     if (slot.composedImageId && previews[slot.composedImageId]) return slot.composedImageId
@@ -229,8 +260,15 @@ export default function RetailStudio() {
       copyLines: plan?.copyLines ?? [],
       preset,
       productValid: productValidation.valid,
+      special: plan?.id === '08-special' && plan.specialImageType ? {
+        generationEligible: plan.generationEligible,
+        processingMode: plan.processingMode,
+        specialImageType: plan.specialImageType,
+        sourceRolePresent: !plan.requiredSourceRole || Object.values(sourceImageRoles).includes(plan.requiredSourceRole),
+        trustedFacts: getTrustedRetailFacts(project.product),
+      } : undefined,
     })]
-  })) as Record<RetailSlotId, RetailQualityReport>, [imageMetadata, plans, preset, previews, productValidation.valid, project.slots])
+  })) as Record<RetailSlotId, RetailQualityReport>, [imageMetadata, plans, preset, previews, productValidation.valid, project.product, project.slots, sourceImageRoles])
 
   const updateProject = (updater: (current: RetailProject) => RetailProject) => {
     setProject((current) => {
@@ -252,6 +290,7 @@ export default function RetailStudio() {
       ...current,
       title: product.name.trim() || current.title,
       product,
+      slots: current.slots.map(clearSpecialSlot),
       updatedAt: Date.now(),
     }))
   }
@@ -267,7 +306,16 @@ export default function RetailStudio() {
       }))
       const unique = nextImages.filter((image) => !sourceImagesRef.current.some((current) => current.id === image.id))
       setSourceImages((current) => [...current, ...unique])
-      updateProject((current) => ({ ...current, sourceImageIds: [...current.sourceImageIds, ...unique.map((image) => image.id)], updatedAt: Date.now() }))
+      updateProject((current) => ({
+        ...current,
+        sourceImageIds: [...current.sourceImageIds, ...unique.map((image) => image.id)],
+        sourceImageRoles: {
+          ...current.sourceImageRoles,
+          ...Object.fromEntries(unique.map((image) => [image.id, 'product' as const])),
+        },
+        slots: current.slots.map(clearSpecialSlot),
+        updatedAt: Date.now(),
+      }))
     } catch (error) {
       showToast(error instanceof Error ? error.message : '图片读取失败', 'error')
     }
@@ -275,7 +323,26 @@ export default function RetailStudio() {
 
   const handleRemoveSource = (id: string) => {
     setSourceImages((current) => current.filter((image) => image.id !== id))
-    updateProject((current) => ({ ...current, sourceImageIds: current.sourceImageIds.filter((imageId) => imageId !== id), updatedAt: Date.now() }))
+    updateProject((current) => {
+      const sourceImageRoles = { ...current.sourceImageRoles }
+      delete sourceImageRoles[id]
+      return {
+        ...current,
+        sourceImageIds: current.sourceImageIds.filter((imageId) => imageId !== id),
+        sourceImageRoles,
+        slots: current.slots.map(clearSpecialSlot),
+        updatedAt: Date.now(),
+      }
+    })
+  }
+
+  const handleSourceRoleChange = (id: string, role: RetailSourceImageRole) => {
+    updateProject((current) => ({
+      ...current,
+      sourceImageRoles: { ...current.sourceImageRoles, [id]: role },
+      slots: current.slots.map(clearSpecialSlot),
+      updatedAt: Date.now(),
+    }))
   }
 
   const startQueue = (slotIds: RetailSlotId[]) => {
@@ -293,13 +360,29 @@ export default function RetailStudio() {
 
     const snapshot = projectRef.current
     const sourceSnapshot = sourceImagesRef.current.map((image) => ({ ...image }))
-    const productSnapshot = { ...snapshot.product, attributes: { ...snapshot.product.attributes }, sellingPoints: [...snapshot.product.sellingPoints] }
-    const planSnapshot = createRetailImagePlan(productSnapshot, archetype, snapshot.platformPresetId, snapshot.styleId)
+    const productSnapshot = {
+      ...snapshot.product,
+      attributes: { ...snapshot.product.attributes },
+      sellingPoints: [...snapshot.product.sellingPoints],
+      factSources: { ...snapshot.product.factSources },
+      factVerification: { ...snapshot.product.factVerification },
+    }
+    const roleSnapshot = Object.fromEntries(snapshot.sourceImageIds.map((id) => [id, snapshot.sourceImageRoles[id] ?? 'product'])) as Record<string, RetailSourceImageRole>
+    const specialSnapshot = evaluateRetailSpecialImage({
+      product: productSnapshot,
+      archetype,
+      sourceImageRoles: roleSnapshot,
+      preferredType: snapshot.specialImageType,
+    })
+    const planSnapshot = createRetailImagePlan(productSnapshot, archetype, snapshot.platformPresetId, snapshot.styleId, specialSnapshot)
     const targets = slotIds.flatMap((slotId) => {
       const plan = planSnapshot.find((item) => item.id === slotId)
-      return plan ? [{ id: slotId, plan }] : []
+      return plan?.generationEligible ? [{ id: slotId, plan }] : []
     })
-    if (targets.length === 0) return
+    if (targets.length === 0) {
+      showToast('该特殊图还缺少字段或真实资料', 'error')
+      return
+    }
 
     setProject((current) => ({
       ...current,
@@ -312,26 +395,36 @@ export default function RetailStudio() {
     const queue = new RetailGenerationQueue<QueueItem>(async ({ id, plan }) => {
       updateSlot(id, { status: 'running', error: null })
       try {
-        const taskId = await submitPreparedTask({
-          prompt: `${plan.prompt}\n\nNegative requirements: ${plan.negativePrompt}`,
-          inputImages: sourceSnapshot,
-          params: { ...DEFAULT_PARAMS, size: plan.generationSize, quality: 'high', output_format: 'png', output_compression: null, n: 1 },
-          category: {
-            workflow: 'instant-retail',
-            productTitle: productSnapshot.name,
-            retailProjectId: snapshot.id,
-            retailSlot: id,
-          },
-          silent: true,
-        })
-        updateSlot(id, { taskId })
-        const task = await waitForTaskCompletion(taskId)
-        if (task.status === 'error') throw new Error(task.error || '生成失败')
-        const outputImageId = task.outputImages[0]
-        if (!outputImageId) throw new Error('接口未返回图片')
+        const execution = selectRetailPlanInputs(plan, sourceSnapshot, roleSnapshot)
+        if (execution.images.length === 0) throw new Error('缺少该图片位需要的真实参考图')
+
+        let outputImageId: string
+        let outputDataUrl: string
+        if (execution.useModel) {
+          const taskId = await submitPreparedTask({
+            prompt: `${plan.prompt}\n\nNegative requirements: ${plan.negativePrompt}`,
+            inputImages: execution.images,
+            params: { ...DEFAULT_PARAMS, size: plan.generationSize, quality: 'high', output_format: 'png', output_compression: null, n: 1 },
+            category: {
+              workflow: 'instant-retail',
+              productTitle: productSnapshot.name,
+              retailProjectId: snapshot.id,
+              retailSlot: id,
+            },
+            silent: true,
+          })
+          updateSlot(id, { taskId })
+          const task = await waitForTaskCompletion(taskId)
+          if (task.status === 'error') throw new Error(task.error || '生成失败')
+          outputImageId = task.outputImages[0]
+          if (!outputImageId) throw new Error('接口未返回图片')
+          outputDataUrl = await ensureImageCached(outputImageId) ?? ''
+          if (!outputDataUrl) throw new Error('生成图片已丢失')
+        } else {
+          outputImageId = execution.images[0].id
+          outputDataUrl = execution.images[0].dataUrl
+        }
         updateSlot(id, { outputImageId })
-        const outputDataUrl = await ensureImageCached(outputImageId)
-        if (!outputDataUrl) throw new Error('生成图片已丢失')
         const composedDataUrl = await composeRetailImageDataUrl(outputDataUrl, plan, productSnapshot)
         const composedImageId = await storeImage(composedDataUrl, 'generated')
         const metadata = {
@@ -346,6 +439,13 @@ export default function RetailStudio() {
           copyLines: plan.copyLines,
           preset: getRetailPlatformPreset(snapshot.platformPresetId),
           productValid: true,
+          special: plan.id === '08-special' && plan.specialImageType ? {
+            generationEligible: plan.generationEligible,
+            processingMode: plan.processingMode,
+            specialImageType: plan.specialImageType,
+            sourceRolePresent: !plan.requiredSourceRole || Object.values(roleSnapshot).includes(plan.requiredSourceRole),
+            trustedFacts: getTrustedRetailFacts(productSnapshot),
+          } : undefined,
         })
         setPreviews((current) => ({ ...current, [outputImageId]: outputDataUrl, [composedImageId]: composedDataUrl }))
         setImageMetadata((current) => ({ ...current, [composedImageId]: metadata }))
@@ -374,8 +474,7 @@ export default function RetailStudio() {
   }
 
   const handleGenerateAll = () => {
-    const pending = project.slots.filter((slot) => slot.status !== 'done').map((slot) => slot.slotId)
-    startQueue(pending.length > 0 ? pending : project.slots.map((slot) => slot.slotId))
+    startQueue(getRetailGenerationTargets(plans, project.slots))
     setMobileTab('images')
   }
 
@@ -459,7 +558,7 @@ export default function RetailStudio() {
       </div>
 
       <nav className="retail-flow" aria-label="工作流程">
-        {['商品原图', '商品资料', '平台风格', '7 图生成', '内部质检', 'SKU 导出'].map((label, index) => {
+        {['商品原图', '商品资料', '平台风格', '图集生成', '内部质检', 'SKU 导出'].map((label, index) => {
           const active = index < 2 ? sourceImages.length > 0 && (index === 0 || productValidation.valid) : index === 2 ? canGenerate : index === 3 ? completed > 0 : index === 4 ? completed === 7 : false
           return <div key={label} className={active ? 'is-complete' : ''}><span>{index + 1}</span><b>{label}</b></div>
         })}
@@ -467,13 +566,20 @@ export default function RetailStudio() {
 
       <div className="retail-mobile-tabs" role="tablist">
         <button type="button" className={mobileTab === 'product' ? 'is-active' : ''} onClick={() => setMobileTab('product')}><PackageSearch size={16} />商品</button>
-        <button type="button" className={mobileTab === 'images' ? 'is-active' : ''} onClick={() => setMobileTab('images')}><Images size={16} />图集 <span>{completed}/7</span></button>
+        <button type="button" className={mobileTab === 'images' ? 'is-active' : ''} onClick={() => setMobileTab('images')}><Images size={16} />图集 <span>{completed}/7{specialDone ? '+1' : ''}</span></button>
         <button type="button" className={mobileTab === 'quality' ? 'is-active' : ''} onClick={() => setMobileTab('quality')}><ShieldCheck size={16} />质检</button>
       </div>
 
       <div className="retail-layout">
         <aside className={`retail-left-panel ${mobileTab === 'product' ? 'is-mobile-active' : ''}`}>
-          <SourceUploader images={sourceImages} disabled={generating} onFiles={handleFiles} onRemove={handleRemoveSource} />
+          <SourceUploader
+            images={sourceImages}
+            roles={sourceImageRoles}
+            disabled={generating}
+            onFiles={handleFiles}
+            onRemove={handleRemoveSource}
+            onRoleChange={handleSourceRoleChange}
+          />
           <ProductPanel
             product={project.product}
             archetype={archetype}
@@ -482,6 +588,17 @@ export default function RetailStudio() {
             issues={[...productValidation.errors, ...productValidation.warnings]}
             disabled={generating}
             onChange={handleProductChange}
+          />
+          <SpecialImageControls
+            evaluation={specialEvaluation}
+            value={project.specialImageType}
+            disabled={generating}
+            onChange={(specialImageType) => updateProject((current) => ({
+              ...current,
+              specialImageType,
+              slots: current.slots.map(clearSpecialSlot),
+              updatedAt: Date.now(),
+            }))}
           />
           <PlatformControls
             platformPresetId={project.platformPresetId}
@@ -517,7 +634,7 @@ export default function RetailStudio() {
         </div>
       </div>
 
-      <ProgressDock completed={completed} generating={generating} paused={project.queuePaused} canGenerate={canGenerate} onGenerate={handleGenerateAll} onPauseToggle={handlePauseToggle} onExport={handleExport} />
+      <ProgressDock completed={completed} specialDone={specialDone} generating={generating} paused={project.queuePaused} canGenerate={canGenerate} onGenerate={handleGenerateAll} onPauseToggle={handlePauseToggle} onExport={handleExport} />
       {showHistory && <Suspense fallback={null}><RetailHistoryDialog onClose={() => setShowHistory(false)} /></Suspense>}
     </main>
   )

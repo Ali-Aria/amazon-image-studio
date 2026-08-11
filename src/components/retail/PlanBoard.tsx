@@ -27,8 +27,11 @@ export default function PlanBoard({
   onGenerateSlot,
   onOpenImage,
 }: PlanBoardProps) {
-  const completed = slots.filter((slot) => slot.status === 'done').length
-  const progress = Math.round((completed / Math.max(1, slots.length)) * 100)
+  const baseSlots = slots.filter((slot) => slot.slotId !== '08-special')
+  const completed = baseSlots.filter((slot) => slot.status === 'done').length
+  const specialPlan = plans.find((plan) => plan.id === '08-special')
+  const specialDone = slots.find((slot) => slot.slotId === '08-special')?.status === 'done'
+  const progress = Math.round((completed / 7) * 100)
 
   return (
     <section className="retail-board" aria-labelledby="retail-plan-title">
@@ -36,8 +39,8 @@ export default function PlanBoard({
         <div>
           <span className="retail-step-number">04</span>
           <div>
-            <h2 id="retail-plan-title">7 图任务板</h2>
-            <p>{completed}/7 已完成</p>
+            <h2 id="retail-plan-title">7 张基础图 + 1 张特殊图</h2>
+            <p>{completed}/7 基础图 · {specialDone ? '特殊图已完成' : specialPlan?.generationEligible ? '特殊图可生成' : '特殊图按需'}</p>
           </div>
         </div>
         <div className="retail-board-actions">
@@ -48,7 +51,7 @@ export default function PlanBoard({
           )}
           <button type="button" className="retail-primary-command" disabled={!canGenerate || generating} onClick={onGenerateAll}>
             <Sparkles size={17} />
-            {completed > 0 ? '补齐未完成' : '一键生成 7 图'}
+            {completed > 0 ? '补齐未完成' : '一键生成图集'}
           </button>
         </div>
       </header>

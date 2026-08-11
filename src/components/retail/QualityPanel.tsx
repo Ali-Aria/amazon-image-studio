@@ -11,9 +11,13 @@ interface QualityPanelProps {
 }
 
 export default function QualityPanel({ project, productIssues, reports, exporting, onExport }: QualityPanelProps) {
-  const completed = project.slots.filter((slot) => slot.status === 'done').length
+  const baseSlots = project.slots.filter((slot) => slot.slotId !== '08-special')
+  const completed = baseSlots.filter((slot) => slot.status === 'done').length
+  const specialSlot = project.slots.find((slot) => slot.slotId === '08-special')
+  const specialPlan = project.plans.find((plan) => plan.id === '08-special')
   const reportValues = Object.values(reports).filter((value): value is RetailQualityReport => Boolean(value))
-  const blocked = productIssues.some((issue) => issue.severity === 'error') || reportValues.some((report) => report.status === 'blocked')
+  const baseReports = baseSlots.flatMap((slot) => reports[slot.slotId] ? [reports[slot.slotId]!] : [])
+  const blocked = productIssues.some((issue) => issue.severity === 'error') || baseReports.some((report) => report.status === 'blocked')
   const warnings = productIssues.filter((issue) => issue.severity === 'warning').length + reportValues.reduce(
     (count, report) => count + report.findings.filter((finding) => finding.severity === 'warning').length,
     0,
@@ -41,9 +45,10 @@ export default function QualityPanel({ project, productIssues, reports, exportin
       </div>
 
       <div className="retail-quality-checks">
-        <div><CheckCircle2 size={15} /><span>规格尺寸</span><b>{reportValues.filter((report) => report.status !== 'blocked').length}/7</b></div>
+        <div><CheckCircle2 size={15} /><span>基础图规格</span><b>{baseReports.filter((report) => report.status !== 'blocked').length}/7</b></div>
         <div><CheckCircle2 size={15} /><span>商品资料</span><b>{productIssues.some((issue) => issue.severity === 'error') ? '待补充' : '完整'}</b></div>
         <div><CheckCircle2 size={15} /><span>包装保真</span><b>人工核对</b></div>
+        <div><CheckCircle2 size={15} /><span>平台特殊图</span><b>{specialSlot?.status === 'done' ? '已加入' : specialPlan?.generationEligible ? '可生成' : '按需'}</b></div>
       </div>
 
       {findings.length > 0 && (
@@ -63,7 +68,7 @@ export default function QualityPanel({ project, productIssues, reports, exportin
           <Download size={18} />
           {exporting ? '正在打包' : blocked || completed < 7 ? '导出草稿 ZIP' : '导出上传包'}
         </button>
-        <small>{project.product.sku || project.product.barcode || 'NO-SKU'} · {completed} 张图片</small>
+        <small>{project.product.sku || project.product.barcode || 'NO-SKU'} · {completed + (specialSlot?.status === 'done' ? 1 : 0)} 张图片</small>
       </div>
     </aside>
   )

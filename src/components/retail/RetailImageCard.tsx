@@ -19,8 +19,17 @@ const STATUS_LABELS: Record<RetailProjectSlot['status'], string> = {
 }
 
 export default function RetailImageCard({ plan, slot, imageSrc, disabled, onGenerate, onOpen }: RetailImageCardProps) {
+  const specialUnavailable = plan.id === '08-special' && !plan.generationEligible
+  const statusLabel = specialUnavailable ? '需资料' : STATUS_LABELS[slot.status]
+  const actionLabel = plan.processingMode === 'source-only'
+    ? '原件适配'
+    : plan.processingMode === 'deterministic'
+      ? '精准排版'
+      : plan.processingMode === 'ai-preserve'
+        ? 'AI 保真合成'
+        : plan.composeMode === 'none' ? 'AI 场景' : '精准排版'
   return (
-    <article className={`retail-image-card status-${slot.status}`}>
+    <article className={`retail-image-card status-${slot.status} ${specialUnavailable ? 'is-unavailable' : ''}`}>
       <div className="retail-image-preview">
         {imageSrc ? (
           <button type="button" onClick={onOpen} aria-label={`查看${plan.label}`}>
@@ -43,22 +52,23 @@ export default function RetailImageCard({ plan, slot, imageSrc, disabled, onGene
             <span>{String(plan.order).padStart(2, '0')}</span>
             <h3>{plan.label}</h3>
           </div>
-          <span className={`retail-status status-${slot.status}`}>{STATUS_LABELS[slot.status]}</span>
+          <span className={`retail-status ${specialUnavailable ? 'status-needs' : `status-${slot.status}`}`}>{statusLabel}</span>
         </div>
         <p>{plan.objective.split('；')[0]}</p>
         <div className="retail-image-card-actions">
-          <span>{plan.composeMode === 'none' ? 'AI 场景' : '精准排版'}</span>
+          <span>{actionLabel}</span>
           <button
             type="button"
             title={slot.status === 'done' ? '重新生成' : '生成此图'}
             aria-label={slot.status === 'done' ? '重新生成' : '生成此图'}
-            disabled={disabled || slot.status === 'running' || slot.status === 'queued'}
+            disabled={disabled || specialUnavailable || slot.status === 'running' || slot.status === 'queued'}
             onClick={onGenerate}
           >
             <RefreshCw size={15} />
           </button>
         </div>
         {slot.error && <div className="retail-slot-error" title={slot.error}>{slot.error}</div>}
+        {!slot.error && specialUnavailable && plan.blockedReason && <div className="retail-slot-note" title={plan.blockedReason}>{plan.blockedReason}</div>}
       </div>
     </article>
   )
