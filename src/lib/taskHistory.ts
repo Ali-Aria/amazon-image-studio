@@ -132,6 +132,8 @@ export function getTaskHistoryCategory(task: TaskRecord): TaskHistoryCategory {
 
 export function getWorkflowLabel(workflow: TaskWorkflow) {
   switch (workflow) {
+    case 'instant-retail':
+      return '即时零售 7 图'
     case 'amazon-listing':
       return 'Listing 图'
     case 'amazon-aplus':

@@ -56,6 +56,7 @@ import { prepareReferenceImageAndMaskPayload } from './lib/referenceImagePayload
 import { getTaskHistoryCategory } from './lib/taskHistory'
 import { isAmazonListingMainSlot } from './lib/listingPlanner'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
+import { createPreparedTaskRecord } from './lib/preparedTask'
 
 // ===== Image cache =====
 // 内存缓存，id → dataUrl。只保留少量最近使用图片，避免大量 4K data URL 常驻内存。
@@ -2075,6 +2076,76 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   // 异步调用 API
   executeTask(taskId)
   return true
+}
+
+export interface PreparedTaskSubmission {
+  prompt: string
+  inputImages: InputImage[]
+  params: TaskParams
+  category: NonNullable<TaskRecord['category']>
+  silent?: boolean
+}
+
+/** 提交一个不依赖全局输入栏的任务，供即时零售队列等结构化工作流调用。 */
+export async function submitPreparedTask(input: PreparedTaskSubmission): Promise<string> {
+  const state = useStore.getState()
+  const settings = normalizeSettings(state.settings)
+  const activeProfile = getActiveApiProfile(settings)
+  const validationMessage = validateApiProfile(activeProfile)
+
+  if (!canApiProfileGenerateImages(activeProfile)) {
+    state.setShowSettings(true, 'api')
+    throw new Error(`当前配置「${activeProfile.name}」不能生成图片，请切换到生图配置`)
+  }
+  if (validationMessage) {
+    state.setShowSettings(true, 'api')
+    throw new Error(`请先完善请求 API 配置：${validationMessage}`)
+  }
+  const prompt = input.prompt.trim()
+  if (!prompt) throw new Error('生成提示词不能为空')
+  if (input.inputImages.length === 0) throw new Error('请先上传商品原图')
+  if (input.inputImages.length > API_MAX_INPUT_IMAGES) {
+    throw new Error(`参考图不能超过 ${API_MAX_INPUT_IMAGES} 张`)
+  }
+
+  for (const image of input.inputImages) {
+    await storeImage(image.dataUrl)
+    cacheImage(image.id, image.dataUrl)
+  }
+
+  const requestSettings = createSettingsForApiProfile(settings, activeProfile)
+  const params = normalizeParamsForSettings(input.params, requestSettings, { hasInputImages: true })
+  const taskId = genId()
+  const task = createPreparedTaskRecord({
+    id: taskId,
+    now: Date.now(),
+    prompt,
+    params,
+    inputImageIds: input.inputImages.map((image) => image.id),
+    profile: activeProfile,
+    category: input.category,
+  })
+
+  const latestTasks = useStore.getState().tasks
+  useStore.getState().setTasks([task, ...latestTasks])
+  await putTask(task)
+  if (!input.silent) useStore.getState().showToast('任务已提交', 'success')
+  void executeTask(taskId)
+  return taskId
+}
+
+export function waitForTaskCompletion(taskId: string): Promise<TaskRecord> {
+  const current = useStore.getState().tasks.find((task) => task.id === taskId)
+  if (current && current.status !== 'running') return Promise.resolve(current)
+
+  return new Promise((resolve) => {
+    const unsubscribe = useStore.subscribe((state) => {
+      const task = state.tasks.find((candidate) => candidate.id === taskId)
+      if (!task || task.status === 'running') return
+      unsubscribe()
+      resolve(task)
+    })
+  })
 }
 
 function getActiveAgentConversation(): AgentConversation {

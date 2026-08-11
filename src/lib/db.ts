@@ -1,11 +1,12 @@
-import type { AmazonPlannerSession, TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
+import type { AmazonPlannerSession, RetailProject, TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
 
 const DB_NAME = 'amazon-image-studio'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
 const STORE_AMAZON_PLANNER_SESSIONS = 'amazonPlannerSessions'
+const STORE_RETAIL_PROJECTS = 'retailProjects'
 const THUMBNAIL_MAX_SIZE = 720
 const THUMBNAIL_QUALITY = 0.9
 const THUMBNAIL_VERSION = 2
@@ -28,6 +29,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_AMAZON_PLANNER_SESSIONS)) {
         db.createObjectStore(STORE_AMAZON_PLANNER_SESSIONS, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(STORE_RETAIL_PROJECTS)) {
+        db.createObjectStore(STORE_RETAIL_PROJECTS, { keyPath: 'id' })
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -86,6 +90,24 @@ export function deleteAmazonPlannerSession(id: string): Promise<undefined> {
 
 export function clearAmazonPlannerSessions(): Promise<undefined> {
   return dbTransaction(STORE_AMAZON_PLANNER_SESSIONS, 'readwrite', (s) => s.clear())
+}
+
+// ===== Instant retail projects =====
+
+export function getAllRetailProjects(): Promise<RetailProject[]> {
+  return dbTransaction(STORE_RETAIL_PROJECTS, 'readonly', (s) => s.getAll())
+}
+
+export function putRetailProject(project: RetailProject): Promise<IDBValidKey> {
+  return dbTransaction(STORE_RETAIL_PROJECTS, 'readwrite', (s) => s.put(project))
+}
+
+export function deleteRetailProject(id: string): Promise<undefined> {
+  return dbTransaction(STORE_RETAIL_PROJECTS, 'readwrite', (s) => s.delete(id))
+}
+
+export function clearRetailProjects(): Promise<undefined> {
+  return dbTransaction(STORE_RETAIL_PROJECTS, 'readwrite', (s) => s.clear())
 }
 
 // ===== Images =====
