@@ -2,12 +2,14 @@ import type {
   RetailArchetype,
   RetailImagePlan,
   RetailProduct,
+  RetailSpecialImageEvaluation,
   RetailSlotId,
 } from '../types'
 import { getConfirmedRetailFacts } from './retailProduct'
 import { getRetailGenerationSize, getRetailSlotOutputSize } from './retailPlatform'
+import { evaluateRetailSpecialImage } from './retailSpecialImage'
 
-export const RETAIL_SLOT_IDS: RetailSlotId[] = [
+export const RETAIL_BASE_SLOT_IDS: RetailSlotId[] = [
   '01-main',
   '02-front',
   '03-selling-points',
@@ -16,6 +18,8 @@ export const RETAIL_SLOT_IDS: RetailSlotId[] = [
   '06-specification',
   '07-detail-page',
 ]
+
+export const RETAIL_SLOT_IDS: RetailSlotId[] = [...RETAIL_BASE_SLOT_IDS, '08-special']
 
 export const RETAIL_STYLE_PRESETS = {
   'clean-retail': {
@@ -96,6 +100,7 @@ export function createRetailImagePlan(
   archetype: RetailArchetype,
   platformPresetId: string,
   styleId: string,
+  specialEvaluation?: RetailSpecialImageEvaluation,
 ): RetailImagePlan[] {
   const facts = getConfirmedRetailFacts(product)
   const style = RETAIL_STYLE_PRESETS[styleId as keyof typeof RETAIL_STYLE_PRESETS] ?? RETAIL_STYLE_PRESETS['clean-retail']
@@ -104,7 +109,7 @@ export function createRetailImagePlan(
     .map(([label, value]) => `${label}: ${value}`)
     .join('; ')
 
-  return RETAIL_SLOT_IDS.map((id, index) => {
+  const basePlans = RETAIL_BASE_SLOT_IDS.map((id, index) => {
     const definition = slotDefinition(id, archetype, product)
     const textFree = definition.composeMode !== 'none'
       ? 'Keep a calm, high-contrast empty copy area. Do not render Chinese or promotional text; exact copy will be composed later.'
@@ -122,6 +127,8 @@ export function createRetailImagePlan(
       copyLines: copyLinesForSlot(id, product),
       targetSize: getRetailSlotOutputSize(platformPresetId, id),
       generationSize: getRetailGenerationSize(platformPresetId, id),
+      generationEligible: true,
+      processingMode: 'ai' as const,
       prompt: [
         `Create an upload-ready instant-retail product image for: ${product.name}.`,
         `Image role: ${definition.objective}.`,
@@ -141,4 +148,51 @@ export function createRetailImagePlan(
       ].filter(Boolean).join(', '),
     }
   })
+
+  const special = specialEvaluation ?? evaluateRetailSpecialImage({
+    product,
+    archetype,
+    sourceImageRoles: {},
+    preferredType: 'auto',
+  })
+  const specialId: RetailSlotId = '08-special'
+  const specialPrompt = special.processingMode === 'ai-preserve'
+    ? [
+        `Create an upload-ready instant-retail gift package image for: ${product.name}.`,
+        `Confirmed product facts: ${factBlock}.`,
+        `Visual direction: ${style.prompt}.`,
+        'Use the uploaded product and real gift package images as locked references. Preserve the exact product packaging, brand marks, colors, proportions, count, and outer package. Do not invent another box, ribbon, flavor, quantity, or accessory.',
+        'Do not render Chinese or promotional text beyond text already printed on the real packaging.',
+        product.customPrompt.trim(),
+      ].filter(Boolean).join('\n')
+    : ''
+
+  const specialPlan: RetailImagePlan = {
+    id: specialId,
+    order: 8,
+    label: '平台特殊图',
+    objective: `${special.label}；${special.reason}`,
+    prompt: specialPrompt,
+    negativePrompt: special.processingMode === 'ai-preserve'
+      ? [
+          'invented gift box, altered packaging, fake certificate, fake ingredient list, fake nutrition label, misspelled label, duplicate product',
+          'price, coupon amount, discount threshold, QR code, watermark, contact information, ratings, sales ranking, other platform logo',
+          product.forbidden.trim(),
+          ...archetype.forbidden,
+        ].filter(Boolean).join(', ')
+      : '',
+    composeMode: 'special',
+    copyLines: special.copyLines,
+    targetSize: getRetailSlotOutputSize(platformPresetId, specialId),
+    generationSize: getRetailGenerationSize(platformPresetId, specialId),
+    generationEligible: special.state === 'ready',
+    processingMode: special.processingMode,
+    specialImageType: special.selectedType,
+    requiredSourceRole: special.requiredSourceRole,
+    blockedReason: special.state === 'ready'
+      ? undefined
+      : [...special.missingFields, special.reason].filter(Boolean).join('；'),
+  }
+
+  return [...basePlans, specialPlan]
 }

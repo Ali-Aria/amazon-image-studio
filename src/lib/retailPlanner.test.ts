@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { RetailArchetype, RetailProduct } from '../types'
-import { createRetailImagePlan, RETAIL_SLOT_IDS } from './retailPlanner'
+import { createRetailImagePlan, RETAIL_BASE_SLOT_IDS, RETAIL_SLOT_IDS } from './retailPlanner'
 import { createEmptyRetailProduct } from './retailProduct'
+import { evaluateRetailSpecialImage } from './retailSpecialImage'
 
 const archetype: RetailArchetype = {
   id: 'alcohol',
@@ -30,18 +31,34 @@ const product: RetailProduct = {
 }
 
 describe('seven-image retail plan', () => {
-  it('always returns the upload-oriented seven slots in a stable order', () => {
-    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'qixi-gifting')
+  const evaluateSpecial = (preferredType: Parameters<typeof evaluateRetailSpecialImage>[0]['preferredType'] = 'auto') => evaluateRetailSpecialImage({
+    product,
+    archetype,
+    sourceImageRoles: { 'image-product': 'product' },
+    preferredType,
+  })
+
+  it('keeps seven base slots and appends one optional special slot', () => {
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'qixi-gifting', evaluateSpecial())
 
     expect(plan.map((item) => item.id)).toEqual(RETAIL_SLOT_IDS)
-    expect(plan).toHaveLength(7)
+    expect(RETAIL_BASE_SLOT_IDS).toHaveLength(7)
+    expect(plan).toHaveLength(8)
     expect(plan[0]).toMatchObject({ label: '白底主图', composeMode: 'none' })
     expect(plan[5]).toMatchObject({ label: '规格信息', composeMode: 'specification' })
     expect(plan[6]).toMatchObject({ label: '详情长图', composeMode: 'detail' })
+    expect(plan[7]).toMatchObject({
+      id: '08-special',
+      label: '平台特殊图',
+      specialImageType: 'product_facts',
+      generationEligible: true,
+      processingMode: 'deterministic',
+      composeMode: 'special',
+    })
   })
 
   it('locks product identity and leaves exact Chinese copy to deterministic composition', () => {
-    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'qixi-gifting')
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'qixi-gifting', evaluateSpecial())
     const prompts = plan.map((item) => item.prompt).join('\n')
 
     expect(prompts).toContain('RIO 微醺白桃味鸡尾酒')
@@ -52,10 +69,29 @@ describe('seven-image retail plan', () => {
   })
 
   it('uses only confirmed product facts in specification copy', () => {
-    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'clean-retail')
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'clean-retail', evaluateSpecial())
     const spec = plan.find((item) => item.id === '06-specification')!
 
     expect(spec.copyLines).toEqual(expect.arrayContaining(['净含量｜330ml', '酒精度｜3%vol', '售卖规格｜330ml/罐']))
     expect(spec.copyLines.join(' ')).not.toContain('适合所有人群')
+  })
+
+  it('never creates a model prompt for authentic documents', () => {
+    const evaluation = evaluateRetailSpecialImage({
+      product,
+      archetype,
+      sourceImageRoles: { 'image-product': 'product', 'image-document': 'authentic_document' },
+      preferredType: 'authentic_document',
+    })
+    const special = createRetailImagePlan(product, archetype, 'meituan-square', 'clean-retail', evaluation).at(-1)!
+
+    expect(special).toMatchObject({
+      id: '08-special',
+      specialImageType: 'authentic_document',
+      generationEligible: true,
+      processingMode: 'source-only',
+      prompt: '',
+      copyLines: [],
+    })
   })
 })

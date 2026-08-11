@@ -18,5 +18,6 @@ describe('retail platform presets', () => {
   it('uses a portrait canvas only for the detail-page slot', () => {
     expect(getRetailSlotOutputSize('meituan-square', '01-main')).toEqual({ width: 600, height: 600 })
     expect(getRetailSlotOutputSize('meituan-square', '07-detail-page')).toEqual({ width: 750, height: 2000 })
+    expect(getRetailSlotOutputSize('meituan-square', '08-special')).toEqual({ width: 600, height: 600 })
   })
 })

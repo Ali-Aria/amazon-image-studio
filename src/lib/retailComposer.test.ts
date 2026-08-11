@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { RetailImagePlan, RetailProduct } from '../types'
+import type { RetailImagePlan, RetailProduct, RetailSpecialImageType } from '../types'
 import { buildRetailCompositionSpec } from './retailComposer'
 import { createEmptyRetailProduct } from './retailProduct'
 
@@ -29,6 +29,26 @@ function plan(composeMode: RetailImagePlan['composeMode']): RetailImagePlan {
     copyLines: ['可口可乐经典汽水', '净含量｜330ml', '售卖规格｜330ml/罐'],
     targetSize: composeMode === 'detail' ? { width: 750, height: 2000 } : { width: 600, height: 600 },
     generationSize: '1024x1024',
+    generationEligible: true,
+    processingMode: 'ai',
+  }
+}
+
+function specialPlan(type: RetailSpecialImageType, lines: string[], processingMode: RetailImagePlan['processingMode'] = 'deterministic'): RetailImagePlan {
+  return {
+    id: '08-special',
+    order: 8,
+    label: '平台特殊图',
+    objective: '展示真实商品资料',
+    prompt: processingMode === 'source-only' ? '' : 'background only',
+    negativePrompt: '',
+    composeMode: 'special',
+    copyLines: lines,
+    targetSize: { width: 600, height: 600 },
+    generationSize: '1024x1024',
+    generationEligible: true,
+    processingMode,
+    specialImageType: type,
   }
 }
 
@@ -44,5 +64,23 @@ describe('retail deterministic copy composition', () => {
     const spec = buildRetailCompositionSpec(plan('detail'), product)
     const visibleCopy = [spec.title, spec.subtitle, ...spec.lines].join(' ')
     expect(visibleCopy).not.toMatch(/内部|质检|待补充|检查提示|操作说明/)
+  })
+
+  it('builds exact copy for product facts, dimensions, and size guides', () => {
+    const facts = buildRetailCompositionSpec(specialPlan('product_facts', ['净含量｜330ml', '储存方式｜阴凉处']), product)
+    const dimension = buildRetailCompositionSpec(specialPlan('dimension', ['产品尺寸｜160×110×220mm']), product)
+    const sizeGuide = buildRetailCompositionSpec(specialPlan('size_guide', ['尺码｜M', '适用体重｜45-55kg']), product)
+
+    expect(facts).toMatchObject({ title: '商品信息', lines: ['净含量｜330ml', '储存方式｜阴凉处'] })
+    expect(dimension).toMatchObject({ title: '尺寸参数', lines: ['产品尺寸｜160×110×220mm'] })
+    expect(sizeGuide).toMatchObject({ title: '尺码参考', lines: ['尺码｜M', '适用体重｜45-55kg'] })
+  })
+
+  it('adds no generated copy to source-only materials', () => {
+    const spec = buildRetailCompositionSpec(specialPlan('authentic_document', ['内部审核通过'], 'source-only'), product)
+
+    expect(spec.title).toBe('')
+    expect(spec.subtitle).toBe('')
+    expect(spec.lines).toEqual([])
   })
 })

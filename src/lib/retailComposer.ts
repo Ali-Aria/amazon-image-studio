@@ -14,12 +14,28 @@ function cleanVisibleCopy(value: string) {
 }
 
 export function buildRetailCompositionSpec(plan: RetailImagePlan, product: RetailProduct): RetailCompositionSpec {
-  const title = plan.composeMode === 'specification'
+  if (plan.processingMode === 'source-only') {
+    return { title: '', subtitle: '', lines: [], mode: plan.composeMode }
+  }
+
+  const specialTitles = {
+    product_facts: '商品信息',
+    dimension: '尺寸参数',
+    size_guide: '尺码参考',
+    gift_pack: '',
+    back_label: '',
+    authentic_document: '',
+  } as const
+  const title = plan.composeMode === 'special'
+    ? specialTitles[plan.specialImageType ?? 'product_facts']
+    : plan.composeMode === 'specification'
     ? '商品规格'
     : plan.composeMode === 'detail'
       ? product.name
       : product.sellingPoints[0] || product.name
-  const subtitle = plan.composeMode === 'selling-points'
+  const subtitle = plan.composeMode === 'special'
+    ? [product.name, product.saleSpecification].filter(Boolean).join(' · ')
+    : plan.composeMode === 'selling-points'
     ? product.saleSpecification
     : plan.composeMode === 'detail'
       ? [product.brand, product.saleSpecification].filter(Boolean).join(' · ')
@@ -128,6 +144,54 @@ function drawDetailCopy(ctx: CanvasRenderingContext2D, image: HTMLImageElement, 
   }
 }
 
+function drawSpecialCopy(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  spec: RetailCompositionSpec,
+  width: number,
+  height: number,
+  type: RetailImagePlan['specialImageType'],
+) {
+  ctx.fillStyle = '#F7F9FB'
+  ctx.fillRect(0, 0, width, height)
+
+  if (type === 'size_guide') {
+    const pad = Math.round(width * 0.07)
+    drawTextLine(ctx, spec.title, pad, Math.round(height * 0.14), width - pad * 2, Math.round(width * 0.065), '#172033', 800)
+    drawTextLine(ctx, spec.subtitle, pad, Math.round(height * 0.21), width - pad * 2, Math.round(width * 0.028), '#687083', 500)
+    let cursorY = Math.round(height * 0.32)
+    for (const [index, line] of spec.lines.slice(0, 7).entries()) {
+      ctx.fillStyle = index % 2 === 0 ? '#FFFFFF' : '#EEF3F6'
+      ctx.fillRect(pad, cursorY - Math.round(height * 0.045), width - pad * 2, Math.round(height * 0.085))
+      drawTextLine(ctx, line, pad + Math.round(width * 0.035), cursorY, width - pad * 2.5, Math.round(width * 0.032), '#30384A', 600)
+      cursorY += Math.round(height * 0.095)
+    }
+    return
+  }
+
+  const imageX = Math.round(width * 0.54)
+  const imagePad = Math.round(width * 0.05)
+  drawContain(ctx, image, imageX, imagePad, width - imageX - imagePad, height - imagePad * 2)
+
+  const panelWidth = Math.round(width * 0.49)
+  ctx.fillStyle = '#FFFFFF'
+  ctx.fillRect(0, 0, panelWidth, height)
+  ctx.fillStyle = type === 'dimension' ? '#13A8A8' : '#FFCC33'
+  ctx.fillRect(0, 0, Math.max(7, Math.round(width * 0.014)), height)
+
+  const copyX = Math.round(width * 0.065)
+  const maxWidth = panelWidth - copyX - Math.round(width * 0.035)
+  let cursorY = Math.round(height * 0.18)
+  drawTextLine(ctx, spec.title, copyX, cursorY, maxWidth, Math.round(width * 0.06), '#172033', 800)
+  cursorY += Math.round(width * 0.09)
+  drawTextLine(ctx, spec.subtitle, copyX, cursorY, maxWidth, Math.round(width * 0.025), '#687083', 500)
+  cursorY += Math.round(width * 0.08)
+  for (const line of spec.lines.slice(0, 7)) {
+    drawTextLine(ctx, line, copyX, cursorY, maxWidth, Math.round(width * 0.028), '#30384A', 600)
+    cursorY += Math.round(width * 0.062)
+  }
+}
+
 export async function composeRetailImageDataUrl(sourceDataUrl: string, plan: RetailImagePlan, product: RetailProduct) {
   const image = await loadCanvasImage(sourceDataUrl)
   const canvas = document.createElement('canvas')
@@ -137,7 +201,17 @@ export async function composeRetailImageDataUrl(sourceDataUrl: string, plan: Ret
   if (!ctx) throw new Error('当前浏览器不支持图片排版')
 
   const spec = buildRetailCompositionSpec(plan, product)
-  if (plan.composeMode === 'detail') {
+  if (plan.id === '08-special') {
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    if (plan.processingMode === 'source-only') {
+      drawContain(ctx, image, 0, 0, canvas.width, canvas.height)
+    } else if (plan.specialImageType === 'gift_pack') {
+      drawCover(ctx, image, 0, 0, canvas.width, canvas.height)
+    } else {
+      drawSpecialCopy(ctx, image, spec, canvas.width, canvas.height, plan.specialImageType)
+    }
+  } else if (plan.composeMode === 'detail') {
     drawDetailCopy(ctx, image, spec, canvas.width, canvas.height)
   } else {
     ctx.fillStyle = '#FFFFFF'

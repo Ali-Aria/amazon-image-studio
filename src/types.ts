@@ -181,7 +181,8 @@ export type RetailSlotId =
   | '08-special'
 
 export type RetailFactSource = 'user' | 'pool' | 'package' | 'ocr' | 'derived'
-export type RetailComposeMode = 'none' | 'selling-points' | 'specification' | 'detail'
+export type RetailComposeMode = 'none' | 'selling-points' | 'specification' | 'detail' | 'special'
+export type RetailImageProcessingMode = 'ai' | RetailSpecialProcessingMode
 
 export type RetailSpecialImageType =
   | 'product_facts'
@@ -318,6 +319,11 @@ export interface RetailImagePlan {
   copyLines: string[]
   targetSize: { width: number; height: number }
   generationSize: string
+  generationEligible: boolean
+  processingMode: RetailImageProcessingMode
+  specialImageType?: RetailSpecialImageType
+  requiredSourceRole?: RetailSourceImageRole
+  blockedReason?: string
 }
 
 export type RetailSlotStatus = 'idle' | 'queued' | 'running' | 'done' | 'error'
