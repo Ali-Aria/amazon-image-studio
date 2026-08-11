@@ -107,7 +107,4 @@ export function evaluateRetailSlotQuality(input: EvaluateRetailSlotQualityInput)
   return { status, findings }
 }
 
-export function dataUrlByteLength(dataUrl: string) {
-  const payload = dataUrl.split(',')[1] ?? ''
-  return Math.max(0, Math.floor(payload.length * 0.75) - (payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0))
-}
+export { dataUrlByteLength } from './retailEncoder'

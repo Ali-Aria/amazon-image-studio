@@ -1,7 +1,7 @@
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { createRetailProject } from './retailProject'
-import { buildRetailExportManifest, buildRetailProjectZip, safeRetailFileSegment } from './retailExporter'
+import { buildRetailExportManifest, buildRetailProjectZip, planRetailBatchUpload, safeRetailFileSegment } from './retailExporter'
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 
@@ -136,5 +136,97 @@ describe('retail project export', () => {
 
     expect(Object.keys(files).some((path) => path.includes('08_特殊图'))).toBe(false)
     expect(manifest.exportStatus).toBe('upload-ready')
+  })
+})
+
+describe('美团批量上传包', () => {
+  function doneProject() {
+    const project = createRetailProject(100)
+    project.product.name = '可口可乐经典汽水'
+    project.product.sku = 'COKE-330'
+    project.slots = project.slots.map((slot, index) => index < 7 ? {
+      ...slot,
+      status: 'done' as const,
+      outputImageId: `image-${index + 1}`,
+    } : slot)
+    return project
+  }
+
+  it('按货号前缀生成连续编号，默认从 _1 起', () => {
+    const project = doneProject()
+    const images = Object.fromEntries(project.slots.flatMap((slot) => slot.outputImageId ? [[slot.outputImageId, PNG_DATA_URL]] : []))
+    const files = unzipSync(buildRetailProjectZip({ project, images, qualityReports: {}, layout: 'meituan-batch' }))
+    const root = 'COKE-330_可口可乐经典汽水/'
+
+    for (let index = 1; index <= 7; index += 1) {
+      expect(Object.keys(files)).toContain(`${root}COKE-330_${index}.png`)
+    }
+    expect(Object.keys(files)).toContain(`${root}批量导入说明.txt`)
+    expect(Object.keys(files).some((path) => path.includes('01_主图'))).toBe(false)
+  })
+
+  it('只补附图时从 _2 起且仍然连续', () => {
+    const project = doneProject()
+    const images = Object.fromEntries(project.slots.flatMap((slot) => slot.outputImageId ? [[slot.outputImageId, PNG_DATA_URL]] : []))
+    const files = unzipSync(buildRetailProjectZip({ project, images, qualityReports: {}, layout: 'meituan-batch', batchStartIndex: 2 }))
+    const root = 'COKE-330_可口可乐经典汽水/'
+    const indexes = Object.keys(files)
+      .flatMap((path) => path.match(/COKE-330_(\d+)\.png$/)?.[1] ?? [])
+      .map(Number)
+      .sort((a, b) => a - b)
+
+    expect(indexes).toEqual([2, 3, 4, 5, 6, 7, 8])
+    const manifest = JSON.parse(strFromU8(files[`${root}manifest.json`]))
+    expect(manifest.exportLayout).toBe('meituan-batch')
+    expect(manifest.batchFiles).toHaveLength(7)
+  })
+
+  it('被质检拦下的图片位不占编号，剩下的仍然连号', () => {
+    const project = doneProject()
+    // 第 4 张没生成出来，跳过它之后编号必须补齐、不能留空号
+    project.slots = project.slots.map((slot) => slot.slotId === '04-detail'
+      ? { ...slot, status: 'error' as const, outputImageId: null }
+      : slot)
+    const images = Object.fromEntries(project.slots.flatMap((slot) => slot.outputImageId ? [[slot.outputImageId, PNG_DATA_URL]] : []))
+    const files = unzipSync(buildRetailProjectZip({ project, images, qualityReports: {}, layout: 'meituan-batch' }))
+    const indexes = Object.keys(files)
+      .flatMap((path) => path.match(/COKE-330_(\d+)\.png$/)?.[1] ?? [])
+      .map(Number)
+      .sort((a, b) => a - b)
+
+    expect(indexes).toEqual([1, 2, 3, 4, 5, 6])
+  })
+})
+
+describe('批量包缺货号', () => {
+  it('没有货号时拦下来，不拿条码当前缀', () => {
+    const project = createRetailProject(100)
+    project.product.name = '可口可乐经典汽水'
+    project.product.barcode = '6941876270606'
+    project.product.sku = ''
+    project.slots = project.slots.map((slot, index) => index < 2 ? {
+      ...slot,
+      status: 'done' as const,
+      outputImageId: `image-${index + 1}`,
+    } : slot)
+    const images = Object.fromEntries(project.slots.flatMap((slot) => slot.outputImageId ? [[slot.outputImageId, PNG_DATA_URL]] : []))
+
+    expect(() => buildRetailProjectZip({ project, images, qualityReports: {}, layout: 'meituan-batch' }))
+      .toThrowError(/缺少货号/)
+    // 可读命名的包不受影响，仍然可以导出草稿
+    expect(() => buildRetailProjectZip({ project, images, qualityReports: {} })).not.toThrow()
+  })
+})
+
+describe('planRetailBatchUpload', () => {
+  it('编号连续且按实际扩展名命名', () => {
+    const plan = planRetailBatchUpload({
+      slotIds: ['01-main', '03-selling-points', '07-detail-page'],
+      merchantCode: 'SD/001',
+      startIndex: 2,
+      extensionBySlot: { '01-main': 'jpg', '03-selling-points': 'jpg', '07-detail-page': 'jpg' },
+    })
+    expect(plan.map((entry) => entry.fileName)).toEqual(['SD_001_2.jpg', 'SD_001_3.jpg', 'SD_001_4.jpg'])
+    expect(plan.map((entry) => entry.index)).toEqual([2, 3, 4])
   })
 })

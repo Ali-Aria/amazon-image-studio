@@ -1,4 +1,5 @@
 import type { RetailImagePlan, RetailProduct } from '../types'
+import { encodeRetailImage, type RetailEncodeTarget, type RetailEncodedImage } from './retailEncoder'
 
 export interface RetailCompositionSpec {
   title: string
@@ -192,7 +193,12 @@ function drawSpecialCopy(
   }
 }
 
-export async function composeRetailImageDataUrl(sourceDataUrl: string, plan: RetailImagePlan, product: RetailProduct) {
+export async function composeRetailImageDataUrl(
+  sourceDataUrl: string,
+  plan: RetailImagePlan,
+  product: RetailProduct,
+  target: RetailEncodeTarget,
+): Promise<RetailEncodedImage> {
   const image = await loadCanvasImage(sourceDataUrl)
   const canvas = document.createElement('canvas')
   canvas.width = plan.targetSize.width
@@ -221,5 +227,5 @@ export async function composeRetailImageDataUrl(sourceDataUrl: string, plan: Ret
     if (plan.composeMode !== 'none') drawPanelCopy(ctx, spec, canvas.width, canvas.height)
   }
 
-  return canvas.toDataURL('image/png')
+  return encodeRetailImage((mime, quality) => canvas.toDataURL(mime, quality), target)
 }

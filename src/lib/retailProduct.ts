@@ -35,7 +35,8 @@ export function createEmptyRetailProduct(): RetailProduct {
   }
 }
 
-const FACT_FIELD_MAP: Record<string, keyof RetailProduct> = {
+/** 事实标签到商品字段的映射，主档带出与类目必需事实校验共用 */
+export const RETAIL_FACT_FIELD_MAP: Record<string, keyof RetailProduct> = {
   商品名称: 'name',
   品牌: 'brand',
   售卖规格: 'saleSpecification',
@@ -57,7 +58,7 @@ const FACT_FIELD_MAP: Record<string, keyof RetailProduct> = {
 }
 
 function valueForFact(product: RetailProduct, label: string): string {
-  const field = FACT_FIELD_MAP[label]
+  const field = RETAIL_FACT_FIELD_MAP[label]
   if (field) {
     const value = product[field]
     return typeof value === 'string' ? value.trim() : ''

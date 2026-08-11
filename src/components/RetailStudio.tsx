@@ -18,15 +18,18 @@ import {
   putRetailProject,
   storeImage,
 } from '../lib/db'
-import { createRetailImagePlan } from '../lib/retailPlanner'
+import { createRetailImagePlan, RETAIL_SLOT_IDS } from '../lib/retailPlanner'
+import { applyRetailCatalogRecord, lookupRetailCatalogProduct } from '../lib/retailCatalog'
+import { buildRetailBatchZip, downloadRetailBatchZip, groupRetailBatchFiles, type RetailBatchExportEntry } from '../lib/retailBatch'
 import { getRetailPlatformPreset } from '../lib/retailPlatform'
 import { createRetailProject, normalizeRetailProject, RETAIL_PROJECTS_CHANGED_EVENT, syncRetailProjectTasks } from '../lib/retailProject'
 import { loadRetailKnowledge, matchRetailCategory, type RetailKnowledgeIndex } from '../lib/retailKnowledge'
 import { getTrustedRetailFacts, validateRetailProduct } from '../lib/retailProduct'
 import { RetailGenerationQueue } from '../lib/retailQueue'
 import { composeRetailImageDataUrl } from '../lib/retailComposer'
+import { retailEncodeTargetFromPreset } from '../lib/retailEncoder'
 import { dataUrlByteLength, evaluateRetailSlotQuality, type RetailImageMetadata, type RetailQualityReport } from '../lib/retailQuality'
-import { buildRetailProjectZip, downloadRetailProjectZip } from '../lib/retailExporter'
+import { buildRetailProjectZip, downloadRetailProjectZip, type RetailExportLayout } from '../lib/retailExporter'
 import { ensureImageCached, submitPreparedTask, useStore, waitForTaskCompletion } from '../store'
 import { evaluateRetailSpecialImage } from '../lib/retailSpecialImage'
 import { getRetailGenerationTargets, selectRetailPlanInputs } from '../lib/retailSpecialExecution'
@@ -34,6 +37,7 @@ import ProductPanel from './retail/ProductPanel'
 import SourceUploader from './retail/SourceUploader'
 import SpecialImageControls from './retail/SpecialImageControls'
 import PlatformControls from './retail/PlatformControls'
+import BatchPanel from './retail/BatchPanel'
 import PlanBoard from './retail/PlanBoard'
 import QualityPanel from './retail/QualityPanel'
 import ProgressDock from './retail/ProgressDock'
@@ -97,6 +101,8 @@ export default function RetailStudio() {
   const [showHistory, setShowHistory] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; failed: number } | null>(null)
   const queueRef = useRef<RetailGenerationQueue<QueueItem> | null>(null)
   const projectRef = useRef(project)
   const sourceImagesRef = useRef(sourceImages)
@@ -195,6 +201,15 @@ export default function RetailStudio() {
     if (!knowledge || !project.product.categoryPath.trim()) return null
     return matchRetailCategory(knowledge, project.product.platform, project.product.categoryPath)
   }, [knowledge, project.product.categoryPath, project.product.platform])
+
+  const resolveArchetype = (product: RetailProduct): RetailArchetype => {
+    if (!product.categoryPath.trim()) return FALLBACK_ARCHETYPE
+    const match = knowledge ? matchRetailCategory(knowledge, product.platform, product.categoryPath) : null
+    if (match) return match.archetype
+    if (!knowledge) return FALLBACK_ARCHETYPE
+    const source = knowledge.data.archetypes[product.archetypeId] ?? knowledge.data.archetypes.other
+    return { id: product.archetypeId, ...source }
+  }
 
   const archetype = useMemo<RetailArchetype>(() => {
     if (!project.product.categoryPath.trim()) return FALLBACK_ARCHETYPE
@@ -345,21 +360,20 @@ export default function RetailStudio() {
     }))
   }
 
-  const startQueue = (slotIds: RetailSlotId[]) => {
-    if (generating) return
-    if (!sourceImagesRef.current.length) {
-      setMobileTab('product')
-      showToast('请先上传商品原图', 'error')
-      return
-    }
-    if (!productValidation.valid) {
-      setMobileTab('product')
-      showToast(`请先补齐 ${productValidation.errors[0]?.label ?? '商品资料'}`, 'error')
-      return
-    }
-
-    const snapshot = projectRef.current
-    const sourceSnapshot = sourceImagesRef.current.map((image) => ({ ...image }))
+  /**
+   * 跑一个商品项目的生成队列。主动传入项目和原图快照，不读组件状态，
+   * 这样批量模式可以在不切换当前项目的前提下依次跑完每个商品。
+   */
+  const runProjectQueue = (input: {
+    project: RetailProject
+    sources: InputImage[]
+    slotIds: RetailSlotId[]
+    onSlot: (slotId: RetailSlotId, patch: Partial<RetailProjectSlot>) => void
+  }): Promise<{ failed: number; plans: RetailImagePlan[] }> => {
+    const snapshot = input.project
+    const sourceSnapshot = input.sources.map((image) => ({ ...image }))
+    const updateSlot = input.onSlot
+    const archetype = resolveArchetype(snapshot.product)
     const productSnapshot = {
       ...snapshot.product,
       attributes: { ...snapshot.product.attributes },
@@ -375,22 +389,13 @@ export default function RetailStudio() {
       preferredType: snapshot.specialImageType,
     })
     const planSnapshot = createRetailImagePlan(productSnapshot, archetype, snapshot.platformPresetId, snapshot.styleId, specialSnapshot)
-    const targets = slotIds.flatMap((slotId) => {
+    const targets = input.slotIds.flatMap((slotId) => {
       const plan = planSnapshot.find((item) => item.id === slotId)
       return plan?.generationEligible ? [{ id: slotId, plan }] : []
     })
-    if (targets.length === 0) {
-      showToast('该特殊图还缺少字段或真实资料', 'error')
-      return
-    }
+    if (targets.length === 0) return Promise.resolve({ failed: 0, plans: planSnapshot })
 
-    setProject((current) => ({
-      ...current,
-      plans: planSnapshot,
-      queuePaused: false,
-      slots: current.slots.map((slot) => slotIds.includes(slot.slotId) ? { ...slot, status: 'queued', error: null } : slot),
-      updatedAt: Date.now(),
-    }))
+    for (const target of targets) updateSlot(target.id, { status: 'queued', error: null })
 
     const queue = new RetailGenerationQueue<QueueItem>(async ({ id, plan }) => {
       updateSlot(id, { status: 'running', error: null })
@@ -425,19 +430,26 @@ export default function RetailStudio() {
           outputDataUrl = execution.images[0].dataUrl
         }
         updateSlot(id, { outputImageId })
-        const composedDataUrl = await composeRetailImageDataUrl(outputDataUrl, plan, productSnapshot)
+        const snapshotPreset = getRetailPlatformPreset(snapshot.platformPresetId)
+        const encoded = await composeRetailImageDataUrl(
+          outputDataUrl,
+          plan,
+          productSnapshot,
+          retailEncodeTargetFromPreset(snapshotPreset),
+        )
+        const composedDataUrl = encoded.dataUrl
         const composedImageId = await storeImage(composedDataUrl, 'generated')
         const metadata = {
           width: plan.targetSize.width,
           height: plan.targetSize.height,
-          bytes: dataUrlByteLength(composedDataUrl),
+          bytes: encoded.bytes,
         }
         const report = evaluateRetailSlotQuality({
           slotId: id,
           imageId: composedImageId,
           metadata,
           copyLines: plan.copyLines,
-          preset: getRetailPlatformPreset(snapshot.platformPresetId),
+          preset: snapshotPreset,
           productValid: true,
           special: plan.id === '08-special' && plan.specialImageType ? {
             generationEligible: plan.generationEligible,
@@ -465,9 +477,33 @@ export default function RetailStudio() {
 
     queueRef.current = queue
     queue.enqueue(targets)
-    void queue.waitForIdle().then(() => {
-      if (queueRef.current !== queue) return
-      const failed = queue.getSnapshot().filter((item) => item.status === 'error').length
+    return queue.waitForIdle().then(() => ({
+      failed: queue.getSnapshot().filter((item) => item.status === 'error').length,
+      plans: planSnapshot,
+    }))
+  }
+
+  const startQueue = (slotIds: RetailSlotId[]) => {
+    if (generating || batchRunning) return
+    if (!sourceImagesRef.current.length) {
+      setMobileTab('product')
+      showToast('请先上传商品原图', 'error')
+      return
+    }
+    if (!productValidation.valid) {
+      setMobileTab('product')
+      showToast(`请先补齐 ${productValidation.errors[0]?.label ?? '商品资料'}`, 'error')
+      return
+    }
+
+    const snapshot = projectRef.current
+    setProject((current) => ({ ...current, queuePaused: false, updatedAt: Date.now() }))
+    void runProjectQueue({
+      project: snapshot,
+      sources: sourceImagesRef.current,
+      slotIds,
+      onSlot: updateSlot,
+    }).then(({ failed }) => {
       setProject((current) => ({ ...current, queuePaused: false, updatedAt: Date.now() }))
       showToast(failed ? `${failed} 张生成失败，可单独重试` : '本轮图片生成完成', failed ? 'error' : 'success')
     })
@@ -486,17 +522,169 @@ export default function RetailStudio() {
     setProject((current) => ({ ...current, queuePaused: !current.queuePaused, updatedAt: Date.now() }))
   }
 
-  const handleExport = async () => {
+  const handleExport = async (layout: RetailExportLayout = 'readable') => {
     setExporting(true)
     try {
       const ids = project.slots.flatMap((slot) => [slot.composedImageId, slot.outputImageId]).filter((id): id is string => Boolean(id))
       const entries = await Promise.all(ids.map(async (id) => [id, await ensureImageCached(id)] as const))
       const images = Object.fromEntries(entries.filter((entry): entry is [string, string] => Boolean(entry[1])))
-      const zip = buildRetailProjectZip({ project, images, qualityReports })
-      downloadRetailProjectZip(zip, project)
-      showToast('商品图片包已导出', 'success')
+      const zip = buildRetailProjectZip({ project, images, qualityReports, layout, batchStartIndex: project.batchStartIndex })
+      downloadRetailProjectZip(zip, project, layout)
+      showToast(layout === 'meituan-batch' ? '批量上传包已导出' : '商品图片包已导出', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : '导出失败', 'error')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const loadProjectSources = async (target: RetailProject): Promise<InputImage[]> => {
+    const entries = await Promise.all(target.sourceImageIds.map(async (id) => [id, await getImage(id)] as const))
+    return entries.flatMap(([id, image]) => (image?.dataUrl ? [{ id, dataUrl: image.dataUrl }] : []))
+  }
+
+  const handleBatchImport = async (files: File[]) => {
+    const { groups, unmatched } = groupRetailBatchFiles(files)
+    if (groups.length === 0) {
+      showToast('文件名里没识别到条码，请用「条码.jpg」这样的命名', 'error')
+      return
+    }
+    setBatchRunning(true)
+    try {
+      const created: RetailProject[] = []
+      for (const group of groups) {
+        const stored = await Promise.all(group.files.slice(0, 8).map(async (file) => {
+          const dataUrl = await readFileAsDataUrl(file)
+          return { id: await storeImage(dataUrl, 'upload'), dataUrl }
+        }))
+        const next = createRetailProject()
+        next.sourceImageIds = stored.map((image) => image.id)
+        next.sourceImageRoles = Object.fromEntries(stored.map((image) => [image.id, 'product' as const]))
+        next.product = { ...next.product, barcode: group.barcode }
+        next.platformPresetId = projectRef.current.platformPresetId
+        next.styleId = projectRef.current.styleId
+        next.concurrency = projectRef.current.concurrency
+        next.batchStartIndex = projectRef.current.batchStartIndex
+
+        const record = await lookupRetailCatalogProduct(group.barcode)
+        if (record) next.product = applyRetailCatalogRecord(next.product, record, next.product.platform).product
+        next.title = next.product.name || group.barcode
+
+        await putRetailProject(next)
+        created.push(next)
+      }
+      setProjects((current) => [...created, ...current].sort((a, b) => b.updatedAt - a.updatedAt))
+      const filled = created.filter((item) => item.product.name.trim()).length
+      showToast(
+        `已建立 ${created.length} 个商品项目，${filled} 个从主档带出了资料`
+        + (unmatched.length ? `，${unmatched.length} 个文件没识别到条码` : ''),
+        'success',
+      )
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '批量导入失败', 'error')
+    } finally {
+      setBatchRunning(false)
+    }
+  }
+
+  const handleBatchGenerate = async () => {
+    if (generating || batchRunning) return
+    const runnable = projects.filter((item) => {
+      const itemArchetype = resolveArchetype(item.product)
+      return validateRetailProduct(item.product, itemArchetype).valid
+        && item.sourceImageIds.some((id) => (item.sourceImageRoles[id] ?? 'product') === 'product')
+    })
+    if (runnable.length === 0) {
+      showToast('没有资料齐全且带原图的商品项目', 'error')
+      return
+    }
+
+    setBatchRunning(true)
+    setBatchProgress({ done: 0, total: runnable.length, failed: 0 })
+    let failedImages = 0
+    try {
+      for (const [index, item] of runnable.entries()) {
+        setBatchProgress({ done: index, total: runnable.length, failed: failedImages })
+        const sources = await loadProjectSources(item)
+        if (sources.length === 0) continue
+        let working: RetailProject = { ...item, slots: item.slots.map((slot) => ({ ...slot })) }
+        const { failed, plans: itemPlans } = await runProjectQueue({
+          project: working,
+          sources,
+          // 批量项目还没算过 plans，交给 runProjectQueue 现算，这里只排除已完成的图片位
+          slotIds: RETAIL_SLOT_IDS.filter((slotId) => working.slots.find((slot) => slot.slotId === slotId)?.status !== 'done'),
+          onSlot: (slotId, patch) => {
+            working = {
+              ...working,
+              slots: working.slots.map((slot) => (slot.slotId === slotId ? { ...slot, ...patch } : slot)),
+              updatedAt: Date.now(),
+            }
+            if (projectRef.current.id === working.id) updateSlot(slotId, patch)
+          },
+        })
+        failedImages += failed
+        working = { ...working, plans: itemPlans }
+        await putRetailProject(working)
+        setProjects((current) => current.map((entry) => (entry.id === working.id ? working : entry)))
+      }
+      setBatchProgress({ done: runnable.length, total: runnable.length, failed: failedImages })
+      showToast(
+        failedImages ? `批量生成完成，${failedImages} 张失败可单独重试` : `${runnable.length} 个商品全部生成完成`,
+        failedImages ? 'error' : 'success',
+      )
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '批量生成中断', 'error')
+    } finally {
+      setBatchRunning(false)
+    }
+  }
+
+  const handleBatchExport = async (layout: RetailExportLayout) => {
+    setExporting(true)
+    try {
+      const entries: RetailBatchExportEntry[] = []
+      for (const item of projects) {
+        const ids = item.slots.flatMap((slot) => [slot.composedImageId, slot.outputImageId]).filter((id): id is string => Boolean(id))
+        if (ids.length === 0) continue
+        const loaded = await Promise.all(ids.map(async (id) => [id, await ensureImageCached(id)] as const))
+        const images = Object.fromEntries(loaded.filter((entry): entry is [string, string] => Boolean(entry[1])))
+        if (Object.keys(images).length === 0) continue
+        const itemPreset = getRetailPlatformPreset(item.platformPresetId)
+        const itemArchetype = resolveArchetype(item.product)
+        const itemValid = validateRetailProduct(item.product, itemArchetype).valid
+        const reports = Object.fromEntries(item.slots.map((slot) => {
+          const plan = item.plans.find((entry) => entry.id === slot.slotId)
+          const imageId = slot.composedImageId || slot.outputImageId
+          return [slot.slotId, evaluateRetailSlotQuality({
+            slotId: slot.slotId,
+            imageId,
+            metadata: imageId ? imageMetadata[imageId] ?? null : null,
+            copyLines: plan?.copyLines ?? [],
+            preset: itemPreset,
+            productValid: itemValid,
+          })]
+        })) as Partial<Record<RetailSlotId, RetailQualityReport>>
+        entries.push({ project: item, images, qualityReports: reports })
+      }
+      if (entries.length === 0) {
+        showToast('还没有已生成图片的商品项目', 'error')
+        return
+      }
+      if (layout === 'meituan-batch') {
+        const missing = entries.filter((entry) => !entry.project.product.sku.trim())
+        if (missing.length > 0) {
+          showToast(
+            `${missing.length} 个商品还没填货号（店内码）：${missing.slice(0, 3).map((entry) => entry.project.product.name || entry.project.product.barcode).join('、')}${missing.length > 3 ? '…' : ''}`,
+            'error',
+          )
+          return
+        }
+      }
+      const zip = buildRetailBatchZip(entries, layout, project.batchStartIndex)
+      downloadRetailBatchZip(zip, entries.length, layout)
+      showToast(`已导出 ${entries.length} 个商品的${layout === 'meituan-batch' ? '批量上传包' : '图片包'}`, 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '批量导出失败', 'error')
     } finally {
       setExporting(false)
     }
@@ -630,7 +818,23 @@ export default function RetailStudio() {
         </div>
 
         <div className={`retail-right-panel ${mobileTab === 'quality' ? 'is-mobile-active' : ''}`}>
-          <QualityPanel project={project} productIssues={[...productValidation.errors, ...productValidation.warnings]} reports={qualityReports} exporting={exporting} onExport={handleExport} />
+          <BatchPanel
+            projectCount={projects.length}
+            running={batchRunning || generating}
+            exporting={exporting}
+            progress={batchProgress}
+            onImport={(files) => void handleBatchImport(files)}
+            onGenerate={() => void handleBatchGenerate()}
+            onExport={(layout) => void handleBatchExport(layout)}
+          />
+          <QualityPanel
+            project={project}
+            productIssues={[...productValidation.errors, ...productValidation.warnings]}
+            reports={qualityReports}
+            exporting={exporting}
+            onExport={handleExport}
+            onBatchStartIndexChange={(batchStartIndex) => updateProject((current) => ({ ...current, batchStartIndex, updatedAt: Date.now() }))}
+          />
         </div>
       </div>
 

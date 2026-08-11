@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { AlertCircle, ChevronDown, Search } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, ChevronDown, ScanBarcode, Search } from 'lucide-react'
 import type {
   RetailArchetype,
   RetailCategoryKnowledge,
@@ -7,6 +7,13 @@ import type {
   RetailValidationIssue,
 } from '../../types'
 import { searchRetailCategories, type RetailKnowledgeIndex } from '../../lib/retailKnowledge'
+import {
+  applyRetailCatalogRecord,
+  loadRetailCatalogMeta,
+  lookupRetailCatalogProduct,
+  normalizeRetailBarcode,
+  type RetailCatalogRecord,
+} from '../../lib/retailCatalog'
 
 interface ProductPanelProps {
   product: RetailProduct
@@ -23,10 +30,55 @@ const CORE_ATTRIBUTE_LABELS = new Set([
   '口味', '口味或香型', '储存方式', '贮存方式', '保质期', '配料', '材质', '包装清单', '使用方法', '适用人群',
 ])
 
+type CatalogLookupState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'hit'; record: RetailCatalogRecord; filled: string[]; skipped: string[] }
+  | { status: 'miss' }
+  | { status: 'unavailable' }
+
 export default function ProductPanel({ product, archetype, category, knowledge, issues, disabled, onChange }: ProductPanelProps) {
   const [categoryFocused, setCategoryFocused] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [catalogReady, setCatalogReady] = useState<boolean | null>(null)
+  const [lookup, setLookup] = useState<CatalogLookupState>({ status: 'idle' })
+  const productRef = useRef(product)
   const setField = <K extends keyof RetailProduct>(field: K, value: RetailProduct[K]) => onChange({ ...product, [field]: value })
+
+  useEffect(() => { productRef.current = product }, [product])
+  useEffect(() => {
+    let cancelled = false
+    void loadRetailCatalogMeta().then((meta) => { if (!cancelled) setCatalogReady(Boolean(meta)) })
+    return () => { cancelled = true }
+  }, [])
+
+  const runCatalogLookup = async (rawBarcode: string) => {
+    const barcode = normalizeRetailBarcode(rawBarcode)
+    if (barcode.length < 6) return
+    if (catalogReady === false) {
+      setLookup({ status: 'unavailable' })
+      return
+    }
+    setLookup({ status: 'loading' })
+    const record = await lookupRetailCatalogProduct(barcode)
+    if (normalizeRetailBarcode(productRef.current.barcode) !== barcode) return
+    if (!record) {
+      setLookup({ status: 'miss' })
+      return
+    }
+    const result = applyRetailCatalogRecord(productRef.current, record, productRef.current.platform)
+    setLookup({ status: 'hit', record, filled: result.filled, skipped: result.skipped })
+    if (result.filled.length > 0) onChange(result.product)
+  }
+
+  // 扫码枪一次性打完整串，输入停下来再查，避免每敲一位都去拉分片
+  useEffect(() => {
+    const barcode = normalizeRetailBarcode(product.barcode)
+    if (disabled || catalogReady !== true || barcode.length < 8) return
+    const timer = window.setTimeout(() => { void runCatalogLookup(barcode) }, 400)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.barcode, catalogReady, disabled])
 
   const suggestions = useMemo(() => {
     if (!knowledge || !categoryFocused) return []
@@ -52,6 +104,44 @@ export default function ProductPanel({ product, archetype, category, knowledge, 
           <span className="retail-error-count"><AlertCircle size={13} /> {issues.filter((issue) => issue.severity === 'error').length}</span>
         )}
       </div>
+
+      <div className="retail-catalog-lookup">
+        <label className="retail-field">
+          <span>条码</span>
+          <div className="retail-input-icon">
+            <ScanBarcode size={15} />
+            <input
+              value={product.barcode}
+              disabled={disabled}
+              inputMode="numeric"
+              placeholder={catalogReady === false ? '本地未生成主档索引' : '扫码或输入条码，自动带出主档资料'}
+              onChange={(event) => setField('barcode', event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') void runCatalogLookup(product.barcode) }}
+            />
+          </div>
+        </label>
+        <button
+          type="button"
+          className="retail-catalog-button"
+          disabled={disabled || lookup.status === 'loading' || normalizeRetailBarcode(product.barcode).length < 6}
+          onClick={() => void runCatalogLookup(product.barcode)}
+        >
+          {lookup.status === 'loading' ? '查询中' : '带出主档'}
+        </button>
+      </div>
+
+      {lookup.status === 'hit' && (
+        <p className="retail-catalog-note is-hit">
+          已匹配主档：{lookup.record.name}
+          {lookup.filled.length > 0 ? ` · 带出 ${lookup.filled.length} 项（${lookup.filled.slice(0, 4).join('、')}${lookup.filled.length > 4 ? '…' : ''}）` : ' · 无空缺字段可带出'}
+          {lookup.skipped.length > 0 ? ` · 已填写的 ${lookup.skipped.length} 项保留原值未覆盖` : ''}
+          {` · 主档现有主图 ${lookup.record.mainImageCount} 张、详情图 ${lookup.record.detailImageCount} 张、特殊图 ${lookup.record.specialImageCount} 张`}
+        </p>
+      )}
+      {lookup.status === 'miss' && <p className="retail-catalog-note">主档里没有这个条码，请手动补齐商品资料。</p>}
+      {lookup.status === 'unavailable' && (
+        <p className="retail-catalog-note">本地未生成主档索引，条码带出已关闭。运行 scripts/build_retail_product_index.py 后刷新即可启用。</p>
+      )}
 
       <label className={`retail-field ${errorFields.has('name') ? 'has-error' : ''}`}>
         <span>商品名称 *</span>
@@ -91,9 +181,9 @@ export default function ProductPanel({ product, archetype, category, knowledge, 
           <span>品牌 *</span>
           <input value={product.brand} disabled={disabled} onChange={(event) => setField('brand', event.target.value)} />
         </label>
-        <label className="retail-field">
-          <span>条码</span>
-          <input value={product.barcode} disabled={disabled} inputMode="numeric" onChange={(event) => setField('barcode', event.target.value)} />
+        <label className={`retail-field ${errorFields.has('identity') ? 'has-error' : ''}`}>
+          <span>货号 / SKU *</span>
+          <input value={product.sku} disabled={disabled} onChange={(event) => setField('sku', event.target.value)} placeholder="店内码，批量包用它做文件名前缀" />
         </label>
       </div>
 
@@ -131,11 +221,6 @@ export default function ProductPanel({ product, archetype, category, knowledge, 
           <input value={product.material} disabled={disabled} onChange={(event) => setField('material', event.target.value)} />
         </label>
       )}
-
-      <label className={`retail-field ${errorFields.has('identity') ? 'has-error' : ''}`}>
-        <span>SKU *</span>
-        <input value={product.sku} disabled={disabled} onChange={(event) => setField('sku', event.target.value)} placeholder="条码与 SKU 至少填一项" />
-      </label>
 
       <div className="retail-field-grid">
         <label className={`retail-field ${errorFields.has('saleSpecification') ? 'has-error' : ''}`}>

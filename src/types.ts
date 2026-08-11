@@ -354,6 +354,8 @@ export interface RetailProject {
   platformPresetId: string
   styleId: string
   concurrency: number
+  /** 批量上传包的起始编号：1 = 连主图整套替换，2 = 只补附图 */
+  batchStartIndex: number
   queuePaused: boolean
   plans: RetailImagePlan[]
   slots: RetailProjectSlot[]

@@ -12,7 +12,7 @@ export const RETAIL_PLATFORM_PRESETS: Record<string, RetailPlatformPreset> = {
     gallery: { width: 600, height: 600 },
     detail: { width: 750, height: 2000 },
     maxBytes: 5 * 1024 * 1024,
-    outputFormat: 'png',
+    outputFormat: 'jpeg',
   },
   'meituan-landscape': {
     id: 'meituan-landscape',
@@ -25,7 +25,7 @@ export const RETAIL_PLATFORM_PRESETS: Record<string, RetailPlatformPreset> = {
     gallery: { width: 600, height: 450 },
     detail: { width: 750, height: 2000 },
     maxBytes: 5 * 1024 * 1024,
-    outputFormat: 'png',
+    outputFormat: 'jpeg',
   },
   'taobao-flash-square': {
     id: 'taobao-flash-square',
@@ -37,8 +37,8 @@ export const RETAIL_PLATFORM_PRESETS: Record<string, RetailPlatformPreset> = {
     main: { width: 800, height: 800 },
     gallery: { width: 800, height: 800 },
     detail: { width: 750, height: 2000 },
-    maxBytes: null,
-    outputFormat: 'png',
+    maxBytes: 3 * 1024 * 1024,
+    outputFormat: 'jpeg',
   },
 }
 

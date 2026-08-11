@@ -20,6 +20,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# 本地商品主档索引：由 scripts/build_retail_product_index.py 从内部商品池生成，
+# 属于经营数据，不进仓库也不上传远端。缺失时工作台自动关闭条码带出功能。
+public/knowledge/product-index/
+
 # Test and tool output
 test-results/
 coverage/

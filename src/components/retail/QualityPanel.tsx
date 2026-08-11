@@ -1,16 +1,18 @@
-import { AlertTriangle, CheckCircle2, Download, ShieldCheck, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, PackageCheck, ShieldCheck, XCircle } from 'lucide-react'
 import type { RetailProject, RetailSlotId, RetailValidationIssue } from '../../types'
 import type { RetailQualityReport } from '../../lib/retailQuality'
+import type { RetailExportLayout } from '../../lib/retailExporter'
 
 interface QualityPanelProps {
   project: RetailProject
   productIssues: RetailValidationIssue[]
   reports: Partial<Record<RetailSlotId, RetailQualityReport>>
   exporting: boolean
-  onExport: () => void
+  onExport: (layout: RetailExportLayout) => void
+  onBatchStartIndexChange: (value: number) => void
 }
 
-export default function QualityPanel({ project, productIssues, reports, exporting, onExport }: QualityPanelProps) {
+export default function QualityPanel({ project, productIssues, reports, exporting, onExport, onBatchStartIndexChange }: QualityPanelProps) {
   const baseSlots = project.slots.filter((slot) => slot.slotId !== '08-special')
   const completed = baseSlots.filter((slot) => slot.status === 'done').length
   const specialSlot = project.slots.find((slot) => slot.slotId === '08-special')
@@ -64,11 +66,23 @@ export default function QualityPanel({ project, productIssues, reports, exportin
 
       <div className="retail-export-block">
         <span className="retail-step-number">06</span>
-        <button type="button" className="retail-export-command" disabled={completed === 0 || exporting} onClick={onExport}>
+        <button type="button" className="retail-export-command" disabled={completed === 0 || exporting} onClick={() => onExport('readable')}>
           <Download size={18} />
           {exporting ? '正在打包' : blocked || completed < 7 ? '导出草稿 ZIP' : '导出上传包'}
         </button>
+        <button type="button" className="retail-export-secondary" disabled={completed === 0 || exporting} onClick={() => onExport('meituan-batch')}>
+          <PackageCheck size={16} />
+          导出美团批量上传包
+        </button>
+        <label className="retail-batch-start">
+          <span>批量包编号从</span>
+          <select value={project.batchStartIndex} disabled={exporting} onChange={(event) => onBatchStartIndexChange(Number(event.target.value))}>
+            <option value={1}>_1 起（含主图整套替换）</option>
+            <option value={2}>_2 起（只补附图）</option>
+          </select>
+        </label>
         <small>{project.product.sku || project.product.barcode || 'NO-SKU'} · {completed + (specialSlot?.status === 'done' ? 1 : 0)} 张图片</small>
+        <small className="retail-batch-hint">批量包文件名前缀是商品货号（店内码），编号必须连续，跳号整批导入会失败。</small>
       </div>
     </aside>
   )

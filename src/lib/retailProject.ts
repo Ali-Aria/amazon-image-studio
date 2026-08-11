@@ -37,6 +37,7 @@ export function createRetailProject(now = Date.now()): RetailProject {
     platformPresetId: 'meituan-square',
     styleId: 'clean-retail',
     concurrency: 2,
+    batchStartIndex: 1,
     queuePaused: false,
     plans: [],
     slots: RETAIL_PROJECT_SLOT_IDS.map(createEmptySlot),
@@ -107,6 +108,7 @@ export function normalizeRetailProject(value: unknown, now = Date.now()): Retail
       return slot
     }),
     concurrency: source.concurrency === 1 || source.concurrency === 2 || source.concurrency === 3 ? source.concurrency : 2,
+    batchStartIndex: source.batchStartIndex === 2 ? 2 : 1,
     queuePaused: false,
     createdAt: typeof source.createdAt === 'number' ? source.createdAt : now,
     updatedAt: typeof source.updatedAt === 'number' ? source.updatedAt : now,
