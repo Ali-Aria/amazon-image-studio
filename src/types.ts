@@ -2,7 +2,7 @@
 
 export type ApiMode = 'images' | 'responses' | 'chat'
 export type AppMode = 'gallery' | 'agent'
-export type TaskWorkflow = 'amazon-listing' | 'amazon-aplus' | 'gallery' | 'agent' | 'unknown'
+export type TaskWorkflow = 'instant-retail' | 'amazon-listing' | 'amazon-aplus' | 'gallery' | 'agent' | 'unknown'
 export type TaskAspect = 'square' | 'landscape' | 'portrait'
 export type HistoryWorkflowFilter = 'all' | TaskWorkflow
 export type HistoryAspectFilter = 'all' | TaskAspect
@@ -142,6 +142,168 @@ export interface MaskDraft {
   updatedAt: number
 }
 
+// ===== 即时零售 =====
+
+export type RetailPlatformId = 'meituan' | 'taobao_flash' | 'jd'
+export type RetailArchetypeId =
+  | 'alcohol'
+  | 'beverage'
+  | 'fresh_food'
+  | 'chilled_frozen'
+  | 'packaged_food'
+  | 'personal_beauty'
+  | 'household_cleaning'
+  | 'health_medical'
+  | 'mother_baby'
+  | 'pet'
+  | 'electronics'
+  | 'home_kitchen'
+  | 'home_improvement'
+  | 'apparel_textile'
+  | 'stationery_toys'
+  | 'books_media'
+  | 'nutrition_supplements'
+  | 'prepared_food'
+  | 'floral_gardening'
+  | 'adult_products'
+  | 'jewelry_eyewear'
+  | 'automotive_outdoor'
+  | 'other'
+
+export type RetailSlotId =
+  | '01-main'
+  | '02-front'
+  | '03-selling-points'
+  | '04-detail'
+  | '05-scene'
+  | '06-specification'
+  | '07-detail-page'
+
+export type RetailFactSource = 'user' | 'pool' | 'package'
+export type RetailComposeMode = 'none' | 'selling-points' | 'specification' | 'detail'
+
+export interface RetailArchetype {
+  id: RetailArchetypeId
+  label: string
+  match_keywords: string[]
+  required_facts: string[]
+  slot_plan: string[]
+  forbidden: string[]
+}
+
+export interface RetailCategoryKnowledge {
+  path: string
+  count: number
+  archetype: RetailArchetypeId
+  attribute_keys: string[]
+  sale_units: string[]
+  spec_types: string[]
+  image_baseline: {
+    main_p50: number
+    detail_p50: number
+  }
+}
+
+export interface RetailKnowledgeData {
+  schema_version: number
+  generated_at: string
+  source_sha256: string
+  rows_scanned: number
+  archetypes: Record<RetailArchetypeId, Omit<RetailArchetype, 'id'>>
+  top_level_archetypes: Record<RetailPlatformId, Record<string, RetailArchetypeId>>
+  categories: Record<RetailPlatformId, RetailCategoryKnowledge[]>
+}
+
+export interface RetailProduct {
+  name: string
+  platform: RetailPlatformId
+  categoryPath: string
+  archetypeId: RetailArchetypeId
+  brand: string
+  sku: string
+  barcode: string
+  saleSpecification: string
+  saleUnit: string
+  netContent: string
+  packageForm: string
+  flavor: string
+  storage: string
+  shelfLife: string
+  ingredients: string
+  material: string
+  packageIncludes: string
+  usage: string
+  audience: string
+  description: string
+  sellingPoints: string[]
+  attributes: Record<string, string>
+  factSources: Record<string, RetailFactSource>
+  forbidden: string
+  customPrompt: string
+}
+
+export interface RetailValidationIssue {
+  code: string
+  field: string
+  label: string
+  message: string
+  severity: 'error' | 'warning'
+}
+
+export interface RetailPlatformPreset {
+  id: string
+  platform: RetailPlatformId
+  label: string
+  description: string
+  source: 'official' | 'business-default'
+  editable: boolean
+  main: { width: number; height: number }
+  gallery: { width: number; height: number }
+  detail: { width: number; height: number }
+  maxBytes: number | null
+  outputFormat: 'png' | 'jpeg' | 'webp'
+}
+
+export interface RetailImagePlan {
+  id: RetailSlotId
+  order: number
+  label: string
+  objective: string
+  prompt: string
+  negativePrompt: string
+  composeMode: RetailComposeMode
+  copyLines: string[]
+  targetSize: { width: number; height: number }
+  generationSize: string
+}
+
+export type RetailSlotStatus = 'idle' | 'queued' | 'running' | 'done' | 'error'
+
+export interface RetailProjectSlot {
+  slotId: RetailSlotId
+  status: RetailSlotStatus
+  taskId: string | null
+  outputImageId: string | null
+  composedImageId: string | null
+  error: string | null
+  qualityStatus: 'unchecked' | 'pass' | 'warning' | 'blocked'
+}
+
+export interface RetailProject {
+  id: string
+  title: string
+  product: RetailProduct
+  sourceImageIds: string[]
+  platformPresetId: string
+  styleId: string
+  concurrency: number
+  queuePaused: boolean
+  plans: RetailImagePlan[]
+  slots: RetailProjectSlot[]
+  createdAt: number
+  updatedAt: number
+}
+
 // ===== 任务记录 =====
 
 export type TaskStatus = 'running' | 'done' | 'error'
@@ -217,6 +379,8 @@ export interface TaskRecord {
     amazonSlot?: string
     aPlusType?: 'standard' | 'standard-large' | 'premium' | 'mobile'
     styleReferenceImageId?: string
+    retailProjectId?: string
+    retailSlot?: RetailSlotId
   }
 }
 
