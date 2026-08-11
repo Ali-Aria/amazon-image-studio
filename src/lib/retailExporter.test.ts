@@ -46,4 +46,24 @@ describe('retail project export', () => {
     const manifest = buildRetailExportManifest(createRetailProject(100), {})
     expect(manifest.exportStatus).toBe('draft')
   })
+
+  it('falls back to the generated image when a composed image record is unavailable', () => {
+    const project = createRetailProject(100)
+    project.product.name = '巧克力礼盒'
+    project.product.sku = 'GIFT-01'
+    project.slots[0] = {
+      ...project.slots[0],
+      status: 'done',
+      outputImageId: 'generated-main',
+      composedImageId: 'missing-composed-main',
+    }
+
+    const files = unzipSync(buildRetailProjectZip({
+      project,
+      images: { 'generated-main': PNG_DATA_URL },
+      qualityReports: {},
+    }))
+
+    expect(files['GIFT-01_巧克力礼盒/01_主图.png']).toBeDefined()
+  })
 })

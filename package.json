@@ -1,6 +1,6 @@
 {
   "name": "amazon-image-studio",
-  "description": "Amazon Listing image planning and generation workspace.",
+  "description": "Instant-retail product image planning, generation, QA, and export workspace.",
   "private": true,
   "version": "0.1.0",
   "license": "MIT",
@@ -26,6 +26,7 @@
     "@fal-ai/client": "^1.10.0",
     "core-js": "^3.49.0",
     "fflate": "^0.8.2",
+    "lucide-react": "^0.468.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",

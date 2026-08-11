@@ -57,5 +57,19 @@ describe('retail upload quality checks', () => {
 
     expect(result.status).toBe('warning')
     expect(result.findings.some((finding) => finding.code === 'packaging-review')).toBe(true)
+    expect(result.findings.some((finding) => finding.code === 'visual-compliance-review')).toBe(false)
+  })
+
+  it('keeps visual compliance as a single explicit review on the main image', () => {
+    const result = evaluateRetailSlotQuality({
+      slotId: '01-main',
+      imageId: 'image-a',
+      metadata: { width: 600, height: 600, bytes: 1000 },
+      copyLines: [],
+      preset,
+      productValid: true,
+    })
+
+    expect(result.findings.some((finding) => finding.code === 'visual-compliance-review')).toBe(true)
   })
 })

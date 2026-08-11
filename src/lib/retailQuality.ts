@@ -56,6 +56,9 @@ export function evaluateRetailSlotQuality(input: EvaluateRetailSlotQualityInput)
   if (input.imageId && ['01-main', '02-front', '04-detail'].includes(input.slotId)) {
     warn('packaging-review', '请人工核对包装文字、品牌、规格、颜色与数量是否和原图一致')
   }
+  if (input.imageId && input.slotId === '01-main') {
+    warn('visual-compliance-review', '请人工核对整套图片无价格、具体优惠券、二维码、水印和其他平台标识')
+  }
 
   const status = findings.some((finding) => finding.severity === 'block')
     ? 'blocked'

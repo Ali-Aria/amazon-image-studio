@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PARAMS, type TaskRecord } from '../types'
 import {
+  collectRetailProjectImageIds,
   createRetailProject,
   normalizeRetailProject,
   syncRetailProjectTasks,
@@ -28,6 +29,34 @@ describe('retail project state', () => {
     expect(normalized.product.name).toBe('可口可乐 330ml')
     expect(normalized.slots).toHaveLength(7)
     expect(normalized.slots[0]).toMatchObject({ status: 'done', outputImageId: 'image-a' })
+  })
+
+  it('clears a paused local queue that cannot survive a browser restart', () => {
+    const normalized = normalizeRetailProject({
+      id: 'paused',
+      queuePaused: true,
+      slots: [{ slotId: '01-main', status: 'queued', taskId: null }],
+    }, 200)
+
+    expect(normalized.queuePaused).toBe(false)
+    expect(normalized.slots[0].status).toBe('idle')
+  })
+
+  it('collects every source, generated, and composed image reference', () => {
+    const project = createRetailProject(100)
+    project.sourceImageIds = ['source-a', 'source-b']
+    project.slots[0] = {
+      ...project.slots[0],
+      outputImageId: 'output-a',
+      composedImageId: 'composed-a',
+    }
+
+    expect(collectRetailProjectImageIds(project)).toEqual([
+      'source-a',
+      'source-b',
+      'output-a',
+      'composed-a',
+    ])
   })
 
   it('derives running, done, and error slot state from persisted tasks', () => {

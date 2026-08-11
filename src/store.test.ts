@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { DEFAULT_PARAMS } from './types'
 import { createDefaultFalProfile, createDefaultOpenAIProfile, DEFAULT_RESPONSES_MODEL, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
-import type { AgentConversation, AmazonPlannerSession, ExportData, StoredImage, StoredImageThumbnail, TaskRecord } from './types'
+import type { AgentConversation, AmazonPlannerSession, ExportData, RetailProject, StoredImage, StoredImageThumbnail, TaskRecord } from './types'
 import { getSelectedImageMentionLabel } from './lib/promptImageMentions'
+import { createRetailProject } from './lib/retailProject'
 vi.mock('./lib/db', () => {
   const tasks = new Map<string, TaskRecord>()
   const amazonPlannerSessions = new Map<string, AmazonPlannerSession>()
+  const retailProjects = new Map<string, RetailProject>()
   const images = new Map<string, StoredImage>()
   const thumbnails = new Map<string, StoredImageThumbnail>()
   let imageSeq = 0
@@ -34,6 +36,17 @@ vi.mock('./lib/db', () => {
     },
     clearAmazonPlannerSessions: async () => {
       amazonPlannerSessions.clear()
+    },
+    getAllRetailProjects: async () => [...retailProjects.values()],
+    putRetailProject: async (project: RetailProject) => {
+      retailProjects.set(project.id, project)
+      return project.id
+    },
+    deleteRetailProject: async (id: string) => {
+      retailProjects.delete(id)
+    },
+    clearRetailProjects: async () => {
+      retailProjects.clear()
     },
     getImage: async (id: string) => images.get(id),
     getImageThumbnail: async (id: string) => thumbnails.get(id),
@@ -92,9 +105,9 @@ vi.mock('./lib/agentApi', () => ({
     }
   }),
 }))
-import { clearAmazonPlannerSessions, clearImages, getAllAmazonPlannerSessions, putAmazonPlannerSession, putImage } from './lib/db'
+import { clearAmazonPlannerSessions, clearImages, clearRetailProjects, getAllAmazonPlannerSessions, getAllRetailProjects, getImage, putAmazonPlannerSession, putImage, putRetailProject } from './lib/db'
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
-import { cleanStaleAgentInputDrafts, clearData, editOutputs, exportData, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, markInterruptedOpenAIRunningTasks, mergePersistedState, regenerateAgentAssistantMessage, removeTask, retryTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
+import { cleanStaleAgentInputDrafts, clearData, editOutputs, exportData, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, mergePersistedState, regenerateAgentAssistantMessage, removeTask, retryTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -777,6 +790,7 @@ describe('agent conversation creation', () => {
 describe('data import', () => {
   beforeEach(async () => {
     await clearAmazonPlannerSessions()
+    await clearRetailProjects()
     useStore.setState({
       tasks: [],
       agentConversations: [],
@@ -889,6 +903,22 @@ describe('data import', () => {
     expect(useStore.getState().showToast).toHaveBeenCalledWith('已导入 0 条记录和 1 条策划历史', 'success')
   })
 
+  it('imports instant-retail projects with task data', async () => {
+    const project = { ...createRetailProject(100), id: 'retail-import', title: '进口巧克力礼盒' }
+
+    const imported = await importData(importFile({
+      version: 4,
+      exportedAt: new Date(0).toISOString(),
+      tasks: [],
+      retailProjects: [project],
+      imageFiles: {},
+    }), { importConfig: false, importTasks: true })
+
+    expect(imported).toBe(true)
+    expect(await getAllRetailProjects()).toEqual([project])
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('已导入 0 条记录和 1 个商品项目', 'success')
+  })
+
   it('imports custom style references with config data', async () => {
     useStore.setState({ settings: { ...DEFAULT_SETTINGS } })
 
@@ -929,6 +959,7 @@ describe('data import', () => {
 describe('data export and clearing', () => {
   beforeEach(async () => {
     await clearAmazonPlannerSessions()
+    await clearRetailProjects()
     await clearImages()
     useStore.setState({
       tasks: [],
@@ -939,7 +970,7 @@ describe('data export and clearing', () => {
     })
   })
 
-  it('exports Amazon planner session history in the backup manifest', async () => {
+  it('exports legacy planner and instant-retail project history in the backup manifest', async () => {
     const session = amazonPlannerSession({
       id: 'exported-planner-session',
       referenceImageIds: ['image-a'],
@@ -950,6 +981,10 @@ describe('data export and clearing', () => {
       updatedAt: 1_700_000_000_000,
     })
     await putAmazonPlannerSession(session)
+    const retailProject = { ...createRetailProject(1_700_000_000_000), id: 'retail-export', title: '七夕巧克力礼盒' }
+    retailProject.sourceImageIds = ['image-a']
+    retailProject.slots[0] = { ...retailProject.slots[0], status: 'done', outputImageId: 'style-image-a' }
+    await putRetailProject(retailProject)
     await putImage({ id: 'image-a', dataUrl: 'data:image/png;base64,YQ==', createdAt: 1_700_000_000_000, source: 'upload' })
     await putImage({ id: 'preset-style-image', dataUrl: 'data:image/png;base64,Yw==', createdAt: 1_700_000_000_000, source: 'preset' })
     await putImage({ id: 'style-image-a', dataUrl: 'data:image/png;base64,Yg==', createdAt: 1_700_000_000_000, source: 'generated' })
@@ -977,11 +1012,12 @@ describe('data export and clearing', () => {
     const manifest = JSON.parse(strFromU8(unzipped['manifest.json'])) as ExportData
     expect(manifest.version).toBe(4)
     expect(manifest.amazonPlannerSessions).toEqual([session])
+    expect(manifest.retailProjects).toEqual([retailProject])
     expect(manifest.imageFiles).toHaveProperty('image-a')
     expect(manifest.imageFiles).toHaveProperty('preset-style-image')
     expect(manifest.imageFiles).toHaveProperty('style-image-a')
     expect(manifest.imageFiles?.['preset-style-image']?.source).toBe('preset')
-    expect(clickedDownloads[0]?.download).toContain('amazon-image-studio-backup')
+    expect(clickedDownloads[0]?.download).toContain('instant-retail-studio-backup')
 
     createObjectUrl.mockRestore()
     revokeObjectUrl.mockRestore()
@@ -1050,10 +1086,45 @@ describe('data export and clearing', () => {
 
   it('clears Amazon planner sessions when clearing task data', async () => {
     await putAmazonPlannerSession(amazonPlannerSession())
+    await putRetailProject({ ...createRetailProject(100), id: 'retail-clear' })
 
     await clearData({ clearConfig: false, clearTasks: true })
 
     expect(await getAllAmazonPlannerSessions()).toEqual([])
+    expect(await getAllRetailProjects()).toEqual([])
+  })
+})
+
+describe('instant-retail image retention', () => {
+  it('keeps images referenced only by a retail project during startup cleanup', async () => {
+    await clearImages()
+    await clearRetailProjects()
+    useStore.setState({
+      tasks: [],
+      inputImages: [],
+      galleryInputDraft: null,
+      agentInputDrafts: {},
+      agentConversations: [],
+    })
+    const project = { ...createRetailProject(100), id: 'retail-retention' }
+    project.sourceImageIds = ['retail-source']
+    project.slots[0] = {
+      ...project.slots[0],
+      status: 'done',
+      outputImageId: 'retail-output',
+      composedImageId: 'retail-composed',
+    }
+    await putRetailProject(project)
+    for (const id of ['retail-source', 'retail-output', 'retail-composed', 'orphan']) {
+      await putImage({ id, dataUrl: 'data:image/png;base64,YQ==', createdAt: 100, source: 'generated' })
+    }
+
+    await initStore()
+
+    expect(await getImage('retail-source')).toBeDefined()
+    expect(await getImage('retail-output')).toBeDefined()
+    expect(await getImage('retail-composed')).toBeDefined()
+    expect(await getImage('orphan')).toBeUndefined()
   })
 })
 

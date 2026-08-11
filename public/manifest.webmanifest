@@ -1,12 +1,12 @@
 {
-  "name": "亚马逊图片工作台",
-  "short_name": "亚马逊图片",
-  "description": "亚马逊产品图片生成工作台",
+  "name": "即时零售图片工作台",
+  "short_name": "零售图片",
+  "description": "美团闪购与淘宝闪购商品图片生产工作台",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#030712",
-  "theme_color": "#111827",
+  "background_color": "#f4f5f7",
+  "theme_color": "#172033",
   "icons": [
     {
       "src": "./pwa-icon.svg",

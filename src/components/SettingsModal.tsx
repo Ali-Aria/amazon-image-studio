@@ -16,8 +16,6 @@ import {
   getApiProviderLabel,
   getActiveApiProfile,
   importCustomProviderSettingsFromJson,
-  isAmazonPlannerProfile,
-  isOfficialDeepSeekPlannerProfile,
   isOpenRouterImageGenerationProfile,
   isOpenAICompatibleProvider,
   mergeImportedSettings,
@@ -43,7 +41,6 @@ function newId(prefix: string) {
 const ADD_CUSTOM_PROVIDER_VALUE = '__add_custom_provider__'
 const COPY_IMPORT_URL_OPTIONS_STORAGE_KEY = 'gpt-image-playground.copy-import-url-options'
 const LEGACY_DEFAULT_CHAT_MODEL = 'deepseek-v4-flash'
-const DEEPSEEK_PLANNER_NOTICE = '当前 AI 策划配置为 DeepSeek 官方接口。DeepSeek 策划阶段不会读取参考图，系统会仅用 Listing 文本和你填写的商品信息生成策划；参考图仍会在正式生图时随生图请求发送。请把产品颜色、形状、结构、配件、Logo、套装数量等关键特征写进 Listing 或商品信息中。'
 
 const DEFAULT_COPY_IMPORT_URL_OPTIONS = {
   includeApiKey: false,
@@ -384,20 +381,6 @@ export default function SettingsModal() {
     model === DEFAULT_RESPONSES_MODEL ||
     model === DEFAULT_CHAT_MODEL ||
     model === LEGACY_DEFAULT_CHAT_MODEL
-  const getApiModeLabel = (apiMode: AppSettings['apiMode']) =>
-    apiMode === 'responses' ? 'Responses API' : apiMode === 'chat' ? 'Chat Completions' : 'Images API'
-  const amazonPlannerProfiles = draft.profiles.filter(isAmazonPlannerProfile)
-  const selectedAmazonPlannerProfile = amazonPlannerProfiles.find((profile) => profile.id === draft.amazonPlannerProfileId) ?? null
-  const selectedPlannerUsesOfficialDeepSeek = selectedAmazonPlannerProfile
-    ? isOfficialDeepSeekPlannerProfile(selectedAmazonPlannerProfile)
-    : false
-  const amazonPlannerProfileOptions = amazonPlannerProfiles.length
-    ? amazonPlannerProfiles.map((profile) => ({
-        label: `${profile.name} · ${profile.model || getDefaultModelForMode(profile.apiMode)} · ${getApiModeLabel(profile.apiMode)}`,
-        value: profile.id,
-      }))
-    : [{ label: '暂无 Chat/Responses 策划配置', value: '' }]
-
   const wasSettingsOpenRef = useRef(false)
 
   useEffect(() => {
@@ -1440,30 +1423,6 @@ export default function SettingsModal() {
                   </div>
                 </div>
 
-              <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3 dark:border-blue-400/20 dark:bg-blue-400/10">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-blue-900 dark:text-blue-100">AI 策划配置</span>
-                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-200">
-                    Chat
-                  </span>
-                </div>
-                <Select
-                  value={draft.amazonPlannerProfileId}
-                  onChange={(value) => commitSettings({ ...draft, amazonPlannerProfileId: String(value) })}
-                  disabled={amazonPlannerProfiles.length === 0}
-                  options={amazonPlannerProfileOptions}
-                  className="w-full rounded-xl border border-blue-200/70 bg-white/80 px-3 py-2.5 text-sm text-blue-900 outline-none transition focus:border-blue-300 dark:border-blue-400/20 dark:bg-gray-950/40 dark:text-blue-100 dark:focus:border-blue-500/50"
-                />
-                <div data-selectable-text className="mt-2 text-xs leading-relaxed text-blue-800 dark:text-blue-200">
-                  只用于首页 Amazon 面板的 AI 策划；普通生图只接受当前配置为 Images API。默认分为「生图」和「AI策划」两套配置：生图使用 Images API + gpt-image-2，AI 策划使用 Responses API + gpt-5.5。
-                </div>
-                {selectedPlannerUsesOfficialDeepSeek && (
-                  <div data-selectable-text className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-100">
-                    {DEEPSEEK_PLANNER_NOTICE}
-                  </div>
-                )}
-              </div>
-
               {/* 1. 配置名称 */}
               <label className="block">
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">配置名称</span>
@@ -1899,7 +1858,7 @@ export default function SettingsModal() {
                   <div className="mb-5 flex h-[88px] w-[88px] items-center justify-center rounded-full border border-gray-200/80 bg-gray-50/50 text-gray-800 transition-colors group-hover:bg-gray-100 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-gray-100 dark:group-hover:bg-white/[0.06]">
                     <GithubIcon className="h-11 w-11" />
                   </div>
-                  <h4 className="text-[17px] font-bold text-gray-800 dark:text-gray-100">亚马逊图片工作台</h4>
+                  <h4 className="text-[17px] font-bold text-gray-800 dark:text-gray-100">即时零售图片工作台</h4>
                   <p className="mt-1.5 text-[13px] text-gray-500 transition-colors group-hover:text-gray-700 dark:text-gray-400 dark:group-hover:text-gray-300">
                     @Ali-Aria
                   </p>

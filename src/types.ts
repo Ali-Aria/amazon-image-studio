@@ -700,6 +700,7 @@ export interface ExportData {
   tasks?: TaskRecord[]
   agentConversations?: AgentConversation[]
   amazonPlannerSessions?: AmazonPlannerSession[]
+  retailProjects?: RetailProject[]
   /** imageId → 图片信息 */
   imageFiles?: Record<string, {
     path: string

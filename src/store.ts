@@ -14,6 +14,7 @@ import type {
   TaskParams,
   InputImage,
   MaskDraft,
+  RetailProject,
   TaskRecord,
   ExportData,
   ResponsesApiResponse,
@@ -32,6 +33,9 @@ import {
   getAllAmazonPlannerSessions,
   putAmazonPlannerSession,
   clearAmazonPlannerSessions as dbClearAmazonPlannerSessions,
+  getAllRetailProjects,
+  putRetailProject,
+  clearRetailProjects as dbClearRetailProjects,
   getImage,
   getImageThumbnail,
   getStoredFreshImageThumbnail,
@@ -57,6 +61,7 @@ import { getTaskHistoryCategory } from './lib/taskHistory'
 import { isAmazonListingMainSlot } from './lib/listingPlanner'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 import { createPreparedTaskRecord } from './lib/preparedTask'
+import { collectRetailProjectImageIds, RETAIL_PROJECTS_CHANGED_EVENT } from './lib/retailProject'
 
 // ===== Image cache =====
 // 内存缓存，id → dataUrl。只保留少量最近使用图片，避免大量 4K data URL 常驻内存。
@@ -102,6 +107,10 @@ type PendingTaskCategory =
       mode: 'next-submit'
       category: NonNullable<TaskRecord['category']>
     }
+
+function notifyRetailProjectsChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(RETAIL_PROJECTS_CHANGED_EVENT))
+}
 
 function isAmazonTaskWorkflow(
   workflow: NonNullable<TaskRecord['category']>['workflow'],
@@ -297,6 +306,7 @@ function scheduleThumbnailBackfill(ids: Iterable<string>, priority: 'visible' | 
 }
 
 function scheduleThumbnailBackfillTick() {
+  if (typeof window === 'undefined') return
   if (thumbnailBackfillScheduled || thumbnailBackfillIds.size === 0) return
   thumbnailBackfillScheduled = true
 
@@ -843,6 +853,8 @@ export async function deleteImageIfUnreferenced(imageId: string) {
   thumbnailBackfillRunningIds.delete(imageId)
   thumbnailSubscribers.delete(imageId)
   if (isImageReferencedByState(useStore.getState(), imageId)) return
+  const retailProjects = await getAllRetailProjects()
+  if (retailProjects.some((project) => collectRetailProjectImageIds(project).includes(imageId))) return
   try {
     await deleteImage(imageId)
   } catch {
@@ -1771,6 +1783,7 @@ async function recoverFalTask(taskId: string) {
 /** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   const storedTasks = await getAllTasks()
+  const retailProjects = await getAllRetailProjects()
   const { tasks, interruptedTasks } = markInterruptedOpenAIRunningTasks(storedTasks)
   await Promise.all(interruptedTasks.map((task) => putTask(task)))
   useStore.getState().setTasks(tasks)
@@ -1814,6 +1827,7 @@ export async function initStore() {
   for (const t of tasks) {
     addTaskReferencedImageIds(referencedIds, t)
   }
+  addRetailProjectReferencedImageIds(referencedIds, retailProjects)
 
   // 只枚举 key 清理孤立图片，避免启动时把所有 4K 原图读进内存。
   const imageIds = await getAllImageIds()
@@ -2401,6 +2415,12 @@ function addTaskReferencedImageIds(target: Set<string>, task: TaskRecord) {
   for (const id of task.streamPartialImageIds || []) target.add(id)
 }
 
+function addRetailProjectReferencedImageIds(target: Set<string>, projects: RetailProject[]) {
+  for (const project of projects) {
+    for (const id of collectRetailProjectImageIds(project)) target.add(id)
+  }
+}
+
 async function deleteUnreferencedImageIds(imageIds: Iterable<string>) {
   const candidates = Array.from(new Set(Array.from(imageIds).filter(Boolean)))
   if (candidates.length === 0) return
@@ -2411,6 +2431,7 @@ async function deleteUnreferencedImageIds(imageIds: Iterable<string>) {
   addAgentReferencedImageIds(stillUsed)
   addInputDraftReferencedImageIds(stillUsed, galleryInputDraft)
   for (const img of inputImages) stillUsed.add(img.id)
+  addRetailProjectReferencedImageIds(stillUsed, await getAllRetailProjects())
 
   for (const imgId of candidates) {
     if (stillUsed.has(imgId)) continue
@@ -4016,6 +4037,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
   addAgentReferencedImageIds(stillUsed)
   addInputDraftReferencedImageIds(stillUsed, galleryInputDraft)
   for (const img of inputImages) stillUsed.add(img.id)
+  addRetailProjectReferencedImageIds(stillUsed, await getAllRetailProjects())
 
   // 删除孤立图片
   for (const imgId of deletedImageIds) {
@@ -4086,6 +4108,7 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
   if (options.clearTasks) {
     await dbClearTasks()
     await dbClearAmazonPlannerSessions()
+    await dbClearRetailProjects()
     await clearImages()
     imageCache.clear()
     thumbnailCache.clear()
@@ -4099,6 +4122,7 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     })
     clearInputImages()
     clearMaskDraft()
+    notifyRetailProjectsChanged()
   }
 
   if (options.clearConfig) {
@@ -4210,6 +4234,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
   try {
     const tasks = options.exportTasks ? await getAllTasks() : []
     const amazonPlannerSessions = options.exportTasks ? await getAllAmazonPlannerSessions() : []
+    const retailProjects = options.exportTasks ? await getAllRetailProjects() : []
     const images = options.exportTasks ? await getAllImages() : []
     const { settings, agentConversations } = useStore.getState()
     const exportedAt = Date.now()
@@ -4235,6 +4260,12 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
           if (prev == null || session.createdAt < prev) {
             imageCreatedAtFallback.set(id, session.createdAt)
           }
+        }
+      }
+      for (const project of retailProjects) {
+        for (const id of collectRetailProjectImageIds(project)) {
+          const prev = imageCreatedAtFallback.get(id)
+          if (prev == null || project.createdAt < prev) imageCreatedAtFallback.set(id, project.createdAt)
         }
       }
     }
@@ -4290,6 +4321,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
       manifest.tasks = tasks
       manifest.agentConversations = agentConversations
       manifest.amazonPlannerSessions = amazonPlannerSessions
+      manifest.retailProjects = retailProjects
       manifest.imageFiles = imageFiles
       manifest.thumbnailFiles = thumbnailFiles
     }
@@ -4301,7 +4333,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `amazon-image-studio-backup_${formatExportFileTime(new Date(exportedAt))}.zip`
+    a.download = `instant-retail-studio-backup_${formatExportFileTime(new Date(exportedAt))}.zip`
     a.click()
     URL.revokeObjectURL(url)
     useStore.getState().showToast('数据已导出', 'success')
@@ -4333,7 +4365,7 @@ export async function importData(file: File, options: ImportOptions = { importCo
     const data: ExportData = JSON.parse(strFromU8(manifestBytes))
 
     const importedImageIds: string[] = []
-    if (options.importTasks && data.tasks && data.imageFiles) {
+    if (options.importTasks && data.imageFiles) {
       // 还原图片
       for (const [id, info] of Object.entries(data.imageFiles)) {
         const bytes = unzipped[info.path]
@@ -4370,12 +4402,16 @@ export async function importData(file: File, options: ImportOptions = { importCo
         })
       }
 
-      for (const task of data.tasks) {
+      for (const task of data.tasks ?? []) {
         await putTask(task)
       }
       for (const session of data.amazonPlannerSessions ?? []) {
         await putAmazonPlannerSession(session)
       }
+      for (const project of data.retailProjects ?? []) {
+        await putRetailProject(project)
+      }
+      if (data.retailProjects?.length) notifyRetailProjectsChanged()
 
       const tasks = await getAllTasks()
       useStore.getState().setTasks(tasks)
@@ -4403,8 +4439,13 @@ export async function importData(file: File, options: ImportOptions = { importCo
     let msg = '数据已成功导入'
     if (options.importTasks && data.tasks) {
       const plannerSessionCount = data.amazonPlannerSessions?.length ?? 0
-      msg = plannerSessionCount
-        ? `已导入 ${data.tasks.length} 条记录和 ${plannerSessionCount} 条策划历史`
+      const retailProjectCount = data.retailProjects?.length ?? 0
+      const additions = [
+        plannerSessionCount ? `${plannerSessionCount} 条策划历史` : '',
+        retailProjectCount ? `${retailProjectCount} 个商品项目` : '',
+      ].filter(Boolean)
+      msg = additions.length
+        ? `已导入 ${data.tasks.length} 条记录和 ${additions.join('、')}`
         : `已导入 ${data.tasks.length} 条记录`
     } else if (options.importConfig && data.settings) {
       msg = '配置已成功导入'

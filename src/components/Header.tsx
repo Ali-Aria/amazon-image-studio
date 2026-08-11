@@ -3,8 +3,7 @@ import { useStore } from '../store'
 import { useTooltip } from '../hooks/useTooltip'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
-import HelpModal from './HelpModal'
-import { HelpCircleIcon, InstallIcon, SettingsIcon } from './icons'
+import { InstallIcon, SettingsIcon } from './icons'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -19,12 +18,10 @@ function isInstalledPwa() {
 export default function Header() {
   const setShowSettings = useStore((s) => s.setShowSettings)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
-  const [showHelp, setShowHelp] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [isPwaInstalled, setIsPwaInstalled] = useState(isInstalledPwa)
 
   const installTooltip = useTooltip()
-  const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
 
   useEffect(() => {
@@ -86,11 +83,11 @@ export default function Header() {
 
   return (
     <>
-      <header data-no-drag-select className="safe-area-top fixed top-0 left-0 right-0 z-40 border-b border-gray-200 bg-white/80 backdrop-blur dark:border-white/[0.08] dark:bg-gray-950/80">
+      <header data-no-drag-select className="safe-area-top fixed top-0 left-0 right-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur">
         <div className="safe-area-x safe-header-inner mx-auto flex max-w-7xl items-center justify-between">
           <h1 className="min-w-0 pr-3">
-            <span className="text-[17px] font-bold tracking-tight text-gray-800 transition-colors hover:text-gray-600 dark:text-gray-100 dark:hover:text-gray-300 sm:text-lg">
-              亚马逊图片工作台
+            <span className="text-[17px] font-bold tracking-tight text-[#172033] transition-colors hover:text-gray-600 sm:text-lg">
+              即时零售图片工作台
             </span>
           </h1>
           <div className="flex shrink-0 items-center gap-1">
@@ -104,10 +101,10 @@ export default function Header() {
                     dismissAllTooltips()
                     handleInstallClick()
                   }}
-                  className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-900"
+                  className="rounded-lg p-2 transition-colors hover:bg-gray-100"
                   aria-label="安装为应用"
                 >
-                  <InstallIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                  <InstallIcon className="h-5 w-5 text-gray-600" />
                 </button>
                 <ViewportTooltip visible={installTooltip.visible} className="whitespace-nowrap">
                   安装为应用
@@ -116,32 +113,14 @@ export default function Header() {
             )}
             <div
               className="relative"
-              {...helpTooltip.handlers}
-            >
-              <button
-                onClick={() => {
-                  dismissAllTooltips()
-                  setShowHelp(true)
-                }}
-                className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-900"
-                aria-label="操作指南"
-              >
-                <HelpCircleIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              </button>
-              <ViewportTooltip visible={helpTooltip.visible} className="whitespace-nowrap">
-                操作指南
-              </ViewportTooltip>
-            </div>
-            <div
-              className="relative"
               {...settingsTooltip.handlers}
             >
               <button
                 onClick={() => setShowSettings(true)}
-                className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-900"
+                className="rounded-lg p-2 transition-colors hover:bg-gray-100"
                 aria-label="设置"
               >
-                <SettingsIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                <SettingsIcon className="h-5 w-5 text-gray-600" />
               </button>
               <ViewportTooltip visible={settingsTooltip.visible} className="whitespace-nowrap">
                 设置
@@ -154,7 +133,6 @@ export default function Header() {
       <div className="safe-area-top invisible pointer-events-none" aria-hidden="true">
         <div className="safe-header-inner" />
       </div>
-      {showHelp && <HelpModal appMode="gallery" onClose={() => setShowHelp(false)} />}
     </>
   )
 }

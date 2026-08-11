@@ -130,6 +130,7 @@ export default function SearchBar() {
             onChange={(val) => setFilterWorkflow(val as HistoryWorkflowFilter)}
             options={[
               { label: '全部来源', value: 'all' },
+              { label: '即时零售 7 图', value: 'instant-retail' },
               { label: 'Listing 图', value: 'amazon-listing' },
               { label: 'A+ 图', value: 'amazon-aplus' },
               { label: '普通生图', value: 'gallery' },

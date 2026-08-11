@@ -7,6 +7,8 @@ import type {
 import { RETAIL_SLOT_IDS } from './retailPlanner'
 import { createEmptyRetailProduct } from './retailProduct'
 
+export const RETAIL_PROJECTS_CHANGED_EVENT = 'instant-retail-projects-changed'
+
 function createProjectId() {
   return globalThis.crypto?.randomUUID?.() ?? `retail-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
@@ -26,6 +28,14 @@ export function createRetailProject(now = Date.now()): RetailProject {
     createdAt: now,
     updatedAt: now,
   }
+}
+
+export function collectRetailProjectImageIds(project: RetailProject): string[] {
+  const ids = [
+    ...project.sourceImageIds,
+    ...project.slots.flatMap((slot) => [slot.outputImageId, slot.composedImageId]),
+  ]
+  return Array.from(new Set(ids.filter((id): id is string => typeof id === 'string' && Boolean(id))))
 }
 
 function createEmptySlot(slotId: RetailSlotId): RetailProjectSlot {
@@ -62,9 +72,16 @@ export function normalizeRetailProject(value: unknown, now = Date.now()): Retail
     plans: Array.isArray(source.plans) ? source.plans : [],
     slots: RETAIL_SLOT_IDS.map((slotId) => {
       const candidate = incomingSlots.find((slot) => slot?.slotId === slotId)
-      return candidate ? { ...createEmptySlot(slotId), ...candidate, slotId } : createEmptySlot(slotId)
+      if (!candidate) return createEmptySlot(slotId)
+
+      const slot = { ...createEmptySlot(slotId), ...candidate, slotId }
+      if ((slot.status === 'queued' || slot.status === 'running') && !slot.taskId) {
+        return { ...slot, status: 'idle' as const }
+      }
+      return slot
     }),
     concurrency: source.concurrency === 1 || source.concurrency === 2 || source.concurrency === 3 ? source.concurrency : 2,
+    queuePaused: false,
     createdAt: typeof source.createdAt === 'number' ? source.createdAt : now,
     updatedAt: typeof source.updatedAt === 'number' ? source.updatedAt : now,
   }

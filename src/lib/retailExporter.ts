@@ -72,7 +72,8 @@ export function buildRetailProjectZip(input: {
   const files: Record<string, Uint8Array> = {}
 
   for (const slot of project.slots) {
-    const imageId = slot.composedImageId || slot.outputImageId
+    const imageId = [slot.composedImageId, slot.outputImageId]
+      .find((candidate): candidate is string => Boolean(candidate && images[candidate]))
     if (!imageId || !images[imageId]) continue
     const decoded = decodeDataUrl(images[imageId])
     files[`${root}${SLOT_FILE_NAMES[slot.slotId]}.${extensionForMime(decoded.mime)}`] = decoded.bytes

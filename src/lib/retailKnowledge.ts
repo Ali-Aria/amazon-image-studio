@@ -101,7 +101,8 @@ export function searchRetailCategories(
     .map((category) => {
       const normalized = normalizeCategoryText(category.path)
       if (!terms.every((term) => normalized.includes(normalizeCategoryText(term)))) return null
-      const leaf = normalizeCategoryText(category.path.split('>').at(-1) ?? '')
+      const pathParts = category.path.split('>')
+      const leaf = normalizeCategoryText(pathParts[pathParts.length - 1] ?? '')
       const score = terms.reduce((sum, term) => {
         const normalizedTerm = normalizeCategoryText(term)
         return sum + (leaf === normalizedTerm ? 200 : leaf.includes(normalizedTerm) ? 80 : 20)
