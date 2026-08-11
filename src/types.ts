@@ -179,8 +179,49 @@ export type RetailSlotId =
   | '06-specification'
   | '07-detail-page'
 
-export type RetailFactSource = 'user' | 'pool' | 'package'
+export type RetailFactSource = 'user' | 'pool' | 'package' | 'ocr' | 'derived'
 export type RetailComposeMode = 'none' | 'selling-points' | 'specification' | 'detail'
+
+export type RetailSpecialImageType =
+  | 'product_facts'
+  | 'dimension'
+  | 'size_guide'
+  | 'gift_pack'
+  | 'back_label'
+  | 'authentic_document'
+
+export type RetailSourceImageRole =
+  | 'product'
+  | 'back_label'
+  | 'gift_pack'
+  | 'authentic_document'
+
+export type RetailSpecialImageState =
+  | 'ready'
+  | 'needs-fields'
+  | 'needs-upload'
+  | 'not-applicable'
+
+export type RetailSpecialProcessingMode = 'deterministic' | 'ai-preserve' | 'source-only'
+
+export interface RetailSpecialImageOption {
+  type: RetailSpecialImageType
+  label: string
+  state: RetailSpecialImageState
+  eligible: boolean
+  missingFields: string[]
+  copyLines: string[]
+  requiredSourceRole?: RetailSourceImageRole
+  processingMode: RetailSpecialProcessingMode
+  allowAiGeneration: boolean
+  reason: string
+}
+
+export interface RetailSpecialImageEvaluation extends RetailSpecialImageOption {
+  selectedType: RetailSpecialImageType
+  eligibleTypes: RetailSpecialImageType[]
+  options: RetailSpecialImageOption[]
+}
 
 export interface RetailArchetype {
   id: RetailArchetypeId
@@ -238,6 +279,7 @@ export interface RetailProduct {
   sellingPoints: string[]
   attributes: Record<string, string>
   factSources: Record<string, RetailFactSource>
+  factVerification: Record<string, boolean>
   forbidden: string
   customPrompt: string
 }

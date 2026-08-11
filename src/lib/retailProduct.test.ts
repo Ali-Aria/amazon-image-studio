@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RetailArchetype, RetailProduct } from '../types'
-import { createEmptyRetailProduct, validateRetailProduct } from './retailProduct'
+import { createEmptyRetailProduct, getTrustedRetailFacts, validateRetailProduct } from './retailProduct'
 
 const alcohol: RetailArchetype = {
   id: 'alcohol',
@@ -66,5 +66,21 @@ describe('retail product facts', () => {
     expect(result.confirmedFacts['酒精度']).toBe('3%vol')
     expect(result.confirmedFacts['是否含糖']).toBeUndefined()
     expect(result.warnings.some((issue) => issue.code === 'unverified-description')).toBe(true)
+  })
+
+  it('excludes derived and unconfirmed OCR facts from trusted image copy', () => {
+    const product = validAlcohol()
+    product.attributes = { 酒精度: '3%vol', 原产地: '法国', 饮用温度: '8-12℃' }
+    product.factSources = { 酒精度: 'package', 原产地: 'derived', 饮用温度: 'ocr' }
+    product.factVerification = { 饮用温度: false }
+
+    const facts = getTrustedRetailFacts(product)
+
+    expect(facts['酒精度']).toBe('3%vol')
+    expect(facts['原产地']).toBeUndefined()
+    expect(facts['饮用温度']).toBeUndefined()
+
+    product.factVerification['饮用温度'] = true
+    expect(getTrustedRetailFacts(product)['饮用温度']).toBe('8-12℃')
   })
 })

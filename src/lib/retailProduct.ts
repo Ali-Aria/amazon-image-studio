@@ -29,6 +29,7 @@ export function createEmptyRetailProduct(): RetailProduct {
     sellingPoints: [],
     attributes: {},
     factSources: {},
+    factVerification: {},
     forbidden: '',
     customPrompt: '',
   }
@@ -68,7 +69,7 @@ function issue(field: string, label: string, severity: 'error' | 'warning', code
   return { field, label, severity, code, message }
 }
 
-export function getConfirmedRetailFacts(product: RetailProduct): Record<string, string> {
+function getRawRetailFacts(product: RetailProduct): Record<string, string> {
   const facts: Record<string, string> = {}
   const pairs: Array<[string, string]> = [
     ['商品名称', product.name],
@@ -96,6 +97,20 @@ export function getConfirmedRetailFacts(product: RetailProduct): Record<string, 
     if (value.trim()) facts[label] = value.trim()
   }
   return facts
+}
+
+export function getTrustedRetailFacts(product: RetailProduct): Record<string, string> {
+  const facts = getRawRetailFacts(product)
+  return Object.fromEntries(Object.entries(facts).filter(([label]) => {
+    const source = product.factSources[label]
+    if (source === 'derived') return false
+    if (source === 'ocr') return product.factVerification[label] === true
+    return true
+  }))
+}
+
+export function getConfirmedRetailFacts(product: RetailProduct): Record<string, string> {
+  return getTrustedRetailFacts(product)
 }
 
 export function validateRetailProduct(product: RetailProduct, archetype: RetailArchetype) {
