@@ -1,6 +1,7 @@
 import type { AmazonImageKind, AmazonPromptDraft } from './amazonPrompt'
 import type { AmazonStyleDensityMode } from '../types'
 import { calculateImageSize, type SizeTier } from './size'
+import { getAmazonMarketplace, type AmazonMarketplaceId } from './amazonMarketplaces'
 
 export type AmazonPlannerMode = 'listing' | 'aplus'
 export type { AmazonStyleDensityMode } from '../types'
@@ -214,20 +215,6 @@ const STYLE_REFERENCE_GUARD = [
   '- Follow the image task, layout density, and negative prompt sections for the actual content and arrangement.',
 ].join('\n')
 
-const STYLE_DENSITY_GUIDES: Record<AmazonStyleDensityMode, string> = {
-  rich: [
-    'Layout density:',
-    '- Use a polished, information-rich Amazon gallery layout when the selected image type benefits from explanation.',
-    '- Build clear hierarchy with mobile-readable US-English copy, multiple well-spaced callouts, detail crops, comparison areas, measurement arrows, or use-case zones as appropriate.',
-    '- Keep the composition premium and organized; information-rich should still be readable, balanced, and uncluttered.',
-  ].join('\n'),
-  minimal: [
-    'Layout density:',
-    '- Use a refined minimal Amazon layout with fewer callouts, generous balanced spacing, light icon or line treatment, and restrained US-English copy.',
-    '- Keep the product and one or two strongest messages dominant, with clean hierarchy and no clutter.',
-  ].join('\n'),
-}
-
 export const DEFAULT_LISTING_IMAGE_COUNT = 7
 export const MIN_LISTING_IMAGE_COUNT = 7
 export const MAX_LISTING_IMAGE_COUNT = 12
@@ -265,13 +252,33 @@ export function isAmazonListingMainSlot(slot?: string | null): boolean {
   return slot?.trim().toUpperCase() === 'MAIN'
 }
 
-export function normalizeOnImageCopy(copy: string): string {
+export function normalizeOnImageCopy(copy: string, marketplaceId?: AmazonMarketplaceId): string {
+  const marketplace = getAmazonMarketplace(marketplaceId)
   return copy
     .replace(/\\n/g, '\n')
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !CJK_ON_IMAGE_TEXT_RE.test(line))
+    .filter((line) => line && (marketplace.allowsCjkVisibleCopy || !CJK_ON_IMAGE_TEXT_RE.test(line)))
     .join('\n')
+}
+
+function getStyleDensityGuide(mode: AmazonStyleDensityMode = 'rich', marketplaceId?: AmazonMarketplaceId): string {
+  const marketplace = getAmazonMarketplace(marketplaceId)
+  if (mode === 'minimal') {
+    return [
+      'Layout density:',
+      '- Use a refined minimal Amazon layout with fewer callouts, generous balanced spacing, light icon or line treatment, and restrained visible copy.',
+      `- Any customer-facing copy visible in the image must be concise, natural ${marketplace.onImageCopyLanguage} for ${marketplace.domain}.`,
+      '- Keep the product and one or two strongest messages dominant, with clean hierarchy and no clutter.',
+    ].join('\n')
+  }
+
+  return [
+    'Layout density:',
+    '- Use a polished, information-rich Amazon gallery layout when the selected image type benefits from explanation.',
+    `- Build clear hierarchy with mobile-readable ${marketplace.onImageCopyLanguage} copy for ${marketplace.domain}, multiple well-spaced callouts, detail crops, comparison areas, measurement arrows, or use-case zones as appropriate.`,
+    '- Keep the composition premium and organized; information-rich should still be readable, balanced, and uncluttered.',
+  ].join('\n')
 }
 
 function formatPromptBlock(options: {
@@ -280,6 +287,7 @@ function formatPromptBlock(options: {
   seriesStyleGuide?: string | null
   styleReferenceAttached?: boolean
   styleDensityMode?: AmazonStyleDensityMode
+  marketplaceId?: AmazonMarketplaceId
   selectedVisualStyle?: {
     label: string
     description: string
@@ -306,7 +314,7 @@ function formatPromptBlock(options: {
     options.seriesStyleGuide?.trim()
       ? `${seriesStyleGuideLabel}\n${options.seriesStyleGuide.trim()}`
       : '',
-    options.styleReferenceAttached ? STYLE_DENSITY_GUIDES[options.styleDensityMode ?? 'rich'] : '',
+    options.styleReferenceAttached ? getStyleDensityGuide(options.styleDensityMode, options.marketplaceId) : '',
     options.negativePrompt?.trim()
       ? `Negative prompt:\n${options.negativePrompt.trim()}`
       : '',
@@ -320,6 +328,7 @@ export function buildAmazonPlanPrompt(plan: Pick<AmazonImagePlan, 'prompt' | 'ne
   seriesStyleGuide?: string | null
   styleReferenceAttached?: boolean
   styleDensityMode?: AmazonStyleDensityMode
+  marketplaceId?: AmazonMarketplaceId
   selectedVisualStyle?: {
     label: string
     description: string
@@ -607,6 +616,7 @@ export function buildAmazonAPlusPlanPrompt(plan: Pick<AmazonAPlusPlan, 'prompt' 
   seriesStyleGuide?: string | null
   styleReferenceAttached?: boolean
   styleDensityMode?: AmazonStyleDensityMode
+  marketplaceId?: AmazonMarketplaceId
   selectedVisualStyle?: {
     label: string
     description: string

@@ -8,20 +8,16 @@ describe('callAgentResponsesApi', () => {
     vi.restoreAllMocks()
   })
 
-  it('streams Agent text and requests configured partial images', async () => {
-    const streamBody = [
-      'data: {"type":"response.output_text.delta","delta":"Hel"}',
-      '',
-      'data: {"type":"response.output_text.delta","delta":"lo"}',
-      '',
-      'data: {"type":"response.completed","response":{"id":"resp_1","output":[{"type":"message","content":[{"type":"output_text","text":"Hello"}]},{"type":"image_generation_call","id":"ig_1","result":"ZmluYWw=","size":"1024x1024"}]}}',
-      '',
-      'data: [DONE]',
-      '',
-    ].join('\n')
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(streamBody, {
+  it('ignores legacy Agent streaming settings', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      id: 'resp_1',
+      output: [
+        { type: 'message', content: [{ type: 'output_text', text: 'Hello' }] },
+        { type: 'image_generation_call', id: 'ig_1', result: 'ZmluYWw=', size: '1024x1024' },
+      ],
+    }), {
       status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
+      headers: { 'Content-Type': 'application/json' },
     }))
     const textDeltas: string[] = []
     const profile = createDefaultOpenAIProfile({
@@ -41,14 +37,14 @@ describe('callAgentResponsesApi', () => {
 
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.stream).toBe(true)
-    expect(body.tools[0].partial_images).toBe(2)
+    expect(body.stream).toBeUndefined()
+    expect(body.tools[0].partial_images).toBeUndefined()
     expect(body.tools[0]).toMatchObject({
       output_format: 'jpeg',
       output_compression: 70,
       quality: 'auto',
     })
-    expect(textDeltas).toEqual(['Hel', 'lo'])
+    expect(textDeltas).toEqual([])
     expect(result).toMatchObject({
       responseId: 'resp_1',
       text: 'Hello',
@@ -146,22 +142,15 @@ describe('callAgentResponsesApi', () => {
     ].join('\n'))
   })
 
-  it('stops reading a stream when the caller aborts after output starts', async () => {
-    const streamBody = [
-      'data: {"type":"response.output_text.delta","delta":"Hel"}',
-      '',
-      '',
-    ].join('\n')
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(streamBody))
-        controller.close()
-      },
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
+  it('propagates caller aborts for non-streaming Agent requests', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+      const signal = init?.signal as AbortSignal | undefined
+      if (signal?.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'))
+        return
+      }
+      signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
     }))
-    const textDeltas: string[] = []
     const abortController = new AbortController()
     const profile = createDefaultOpenAIProfile({
       apiKey: 'test-key',
@@ -169,19 +158,16 @@ describe('callAgentResponsesApi', () => {
       streamImages: true,
     })
 
-    await expect(callAgentResponsesApi({
+    const promise = callAgentResponsesApi({
       settings: DEFAULT_SETTINGS,
       profile,
       params: DEFAULT_PARAMS,
       input: [{ role: 'user', content: [{ type: 'input_text', text: 'prompt' }] }],
       signal: abortController.signal,
-      onTextDelta: (delta) => {
-        textDeltas.push(delta)
-        abortController.abort()
-      },
-    })).rejects.toMatchObject({ name: 'AbortError' })
+    })
+    abortController.abort()
 
-    expect(textDeltas).toEqual(['Hel'])
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
   })
 
   it('generates a short conversation title without image tools', async () => {

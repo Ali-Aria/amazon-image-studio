@@ -4,8 +4,9 @@ import type { TaskRecord } from '../types'
 import { useStore, ensureImageThumbnailCached, subscribeImageThumbnail, updateTaskInStore, retryTask } from '../store'
 import { formatImageRatio } from '../lib/size'
 import { getParamDisplay, ActualValueBadge } from '../lib/paramDisplay'
-import { DEFAULT_IMAGES_MODEL, DEFAULT_FAL_MODEL } from '../lib/apiProfiles'
+import { DEFAULT_IMAGES_MODEL, DEFAULT_FAL_MODEL, DEFAULT_VOLCENGINE_MODEL } from '../lib/apiProfiles'
 import { isAgentTaskPromptPending } from '../lib/taskPromptDisplay'
+import { getTaskHistoryCategory, getWorkflowLabel } from '../lib/taskHistory'
 import { CodeIcon } from './icons'
 import ViewportTooltip from './ViewportTooltip'
 
@@ -341,7 +342,11 @@ export default function TaskCard({
   const showPendingPrompt = isAgentTaskPromptPending(task)
   const showN = !isAgentTask && (task.params.n > 1 || nDisplay.isMismatch)
 
-  const defaultModelForProvider = task.apiProvider === 'fal' ? DEFAULT_FAL_MODEL : DEFAULT_IMAGES_MODEL
+  const defaultModelForProvider = task.apiProvider === 'fal'
+    ? DEFAULT_FAL_MODEL
+    : task.apiProvider === 'volcengine'
+    ? DEFAULT_VOLCENGINE_MODEL
+    : DEFAULT_IMAGES_MODEL
   const showModel = task.apiModel && task.apiModel !== defaultModelForProvider
   const isInterrupted = task.status === 'error' && task.error === '已停止生成。'
   const firstOutputImageId = task.outputImages?.[0]
@@ -353,12 +358,13 @@ export default function TaskCard({
     ? { aspectRatio: `${clampWidePreviewRatio(previewAspectRatio)} / 1` }
     : undefined
   const previewImageClass = useWidePreviewLayout ? 'h-full w-full object-contain' : 'w-full h-full object-cover'
+  const historyCategory = getTaskHistoryCategory(task)
 
   return (
-    <div className="relative rounded-xl">
+    <div className="relative rounded-[var(--ios-radius-lg)]">
       {/* 侧滑底图 */}
       <div
-        className={`absolute inset-0 rounded-xl flex items-center transition-opacity duration-200 pointer-events-none ${
+        className={`absolute inset-0 rounded-[var(--ios-radius-lg)] flex items-center transition-opacity pointer-events-none ${
           isSwiping || swipeDirection !== 0 || swipeActionActive ? 'opacity-100' : 'opacity-0'
         } ${swipeBgClass} ${
           swipeDirection > 0 ? 'justify-start pl-6' : 'justify-end pr-6'
@@ -375,16 +381,16 @@ export default function TaskCard({
 
       <div
         ref={cardRef}
-        className={`relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden cursor-pointer touch-pan-y will-change-transform duration-200 hover:shadow-lg dark:hover:bg-gray-800/80 ${
+        className={`ios-card relative overflow-hidden cursor-pointer touch-pan-y will-change-transform hover:-translate-y-0.5 hover:shadow-[var(--ios-shadow-2)] ${
           isSwiping ? '!bg-white dark:!bg-gray-900' : ''
         } ${
-          !isSwiping ? 'transition-[box-shadow,border-color,background-color,transform]' : 'transition-[box-shadow,border-color,background-color]'
+          !isSwiping ? 'transition-[box-shadow,background-color,transform]' : 'transition-[box-shadow,background-color]'
         } ${
           task.status === 'running'
-            ? 'border-blue-400 generating'
+            ? 'ring-2 ring-[hsl(var(--primary)/0.55)] generating'
             : isSelected
-            ? 'border-blue-500 shadow-md ring-2 ring-blue-500/50'
-            : 'border-gray-200 dark:border-white/[0.08] hover:border-gray-300 dark:hover:border-white/[0.18]'
+            ? 'shadow-[var(--ios-shadow-2)] ring-2 ring-[hsl(var(--primary)/0.55)]'
+            : ''
         }`}
         onClick={(e) => {
           if (Date.now() < suppressClickUntilRef.current) {
@@ -420,7 +426,7 @@ export default function TaskCard({
       >
         {/* 选中时的角标 */}
       {isSelected && (
-        <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow-sm">
+        <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-[hsl(var(--primary))] rounded-full flex items-center justify-center shadow-sm">
           <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
           </svg>
@@ -576,7 +582,7 @@ export default function TaskCard({
               </div>
             ) : (
               <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed line-clamp-3">
-                {task.prompt || '(无提示词)'}
+                {task.imageEditContext?.userInstruction || task.prompt || '(无提示词)'}
               </p>
             )}
           </div>
@@ -590,6 +596,9 @@ export default function TaskCard({
               onTouchEnd={(e) => e.stopPropagation()}
               onTouchCancel={(e) => e.stopPropagation()}
             >
+              <span className={`flex flex-shrink-0 items-center rounded px-1.5 py-0.5 text-xs ${historyCategory.workflow === 'seedream-edit' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300' : 'bg-gray-100 text-gray-600 dark:bg-white/[0.04] dark:text-gray-300'}`}>
+                {getWorkflowLabel(historyCategory.workflow)}
+              </span>
               {/* API Name */}
               {(task.apiProfileName || task.apiProvider) && (
                 <span 
@@ -698,7 +707,7 @@ export default function TaskCard({
                 </svg>
               </TaskActionButton>
               <TaskActionButton
-                tooltip="复用配置"
+                tooltip={task.category?.workflow === 'seedream-edit' ? '返回图片编辑' : '复用配置'}
                 onClick={onReuse}
                 className="p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 text-gray-400 hover:text-blue-500 transition"
               >
@@ -717,7 +726,7 @@ export default function TaskCard({
                 </svg>
               </TaskActionButton>
               <TaskActionButton
-                tooltip="编辑输出"
+                tooltip="在图片编辑中打开"
                 onClick={onEditOutputs}
                 className="p-1.5 rounded-md hover:bg-green-50 dark:hover:bg-green-950/30 text-gray-400 hover:text-green-500 transition disabled:opacity-30"
                 disabled={!task.outputImages?.length}

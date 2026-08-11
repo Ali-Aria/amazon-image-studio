@@ -26,6 +26,8 @@ coverage/
 .cache/
 .vite/
 .vitest/
+.playwright-cli/
+output/
 
 # Deployment tool local state
 .wrangler/

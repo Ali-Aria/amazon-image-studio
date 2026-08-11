@@ -4,6 +4,8 @@ import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { Checkbox } from './Checkbox'
 import { CopyIcon } from './icons'
+import { Button, type ButtonVariant } from './Button'
+import { Sheet } from './Sheet'
 
 function renderMessage(message: string) {
   return message.split(/(`[^`]+`|「[^」]+」|\*\*[^*]+\*\*)/g).map((part, index) => {
@@ -35,13 +37,10 @@ function renderMessage(message: string) {
   })
 }
 
-function getActionButtonClass(tone: 'primary' | 'secondary' | 'danger' | 'warning' = 'primary') {
-  if (tone === 'secondary') {
-    return 'border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-white/[0.08] dark:text-gray-400 dark:hover:bg-white/[0.06]'
-  }
-  if (tone === 'warning') return 'bg-orange-500 text-white hover:bg-orange-600'
-  if (tone === 'danger') return 'bg-red-500 text-white hover:bg-red-600'
-  return 'bg-blue-500 text-white hover:bg-blue-600'
+function getActionButtonVariant(tone: 'primary' | 'secondary' | 'danger' | 'warning' = 'primary'): ButtonVariant {
+  if (tone === 'secondary') return 'tinted'
+  if (tone === 'danger' || tone === 'warning') return 'danger'
+  return 'filled'
 }
 
 export default function ConfirmDialog() {
@@ -82,23 +81,19 @@ export default function ConfirmDialog() {
   if (!confirmDialog) return null
   const isDestructive = confirmDialog.title.includes('删除') || confirmDialog.title.includes('清空')
   const confirmTone = confirmDialog.tone ?? (isDestructive ? 'danger' : undefined)
-  const confirmClassName = getActionButtonClass(confirmTone === 'danger' || confirmTone === 'warning' ? confirmTone : 'primary')
+  const confirmVariant = getActionButtonVariant(confirmTone === 'danger' || confirmTone === 'warning' ? confirmTone : 'primary')
   const confirmText = confirmDialog.confirmText ?? (isDestructive ? '确认删除' : '确认')
   const cancelText = confirmDialog.cancelText ?? '取消'
   const customButtons = confirmDialog.buttons?.filter((button) => button.label.trim()) ?? []
 
   return (
-    <div
-      data-no-drag-select
-      className="fixed inset-0 z-[110] flex items-center justify-center p-4"
-      onClick={handleClose}
+    <Sheet
+      onClose={handleClose}
+      rootClassName="z-[110]"
+      className="max-w-sm p-6 pt-8"
+      labelledBy="confirm-dialog-title"
     >
-      <div className="absolute inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-md animate-overlay-in" />
-      <div
-        className="relative bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/50 dark:border-white/[0.08] rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="mb-2 flex items-center gap-2 text-base font-bold text-gray-800 dark:text-gray-100">
+        <h3 id="confirm-dialog-title" className="mb-2 flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-gray-100">
           {confirmDialog.icon === 'info' && (
             <svg className="h-5 w-5 shrink-0 text-blue-500" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" />
@@ -127,7 +122,7 @@ export default function ConfirmDialog() {
         {customButtons.length > 0 ? (
           <div className="flex gap-2">
             {customButtons.map((button) => (
-              <button
+              <Button
                 key={button.label}
                 onClick={() => {
                   if (!canConfirm) return
@@ -135,36 +130,38 @@ export default function ConfirmDialog() {
                   setConfirmDialog(null)
                 }}
                 disabled={!canConfirm}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${getActionButtonClass(button.tone)}`}
+                variant={getActionButtonVariant(button.tone)}
+                className="flex-1"
               >
                 {button.label}
-              </button>
+              </Button>
             ))}
           </div>
         ) : (
           <div className="flex gap-2">
             {confirmDialog.showCancel !== false && (
-              <button
+              <Button
                 onClick={handleCancel}
-                className="flex-1 py-2 rounded-lg border border-gray-200 dark:border-white/[0.08] text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.06] transition"
+                variant="tinted"
+                className="flex-1"
               >
                 {cancelText}
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               onClick={() => {
                 if (!canConfirm) return
                 confirmDialog.action?.(checkboxChecked)
                 setConfirmDialog(null)
               }}
               disabled={!canConfirm}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${confirmClassName}`}
+              variant={confirmVariant}
+              className="flex-1"
             >
               {confirmText}
-            </button>
+            </Button>
           </div>
         )}
-      </div>
-    </div>
+    </Sheet>
   )
 }

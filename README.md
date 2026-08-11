@@ -58,6 +58,10 @@
 
 淘宝闪购预设标记为可编辑的业务默认值，正式上传前应按当前商家后台提示复核尺寸和文件限制。
 
+## 保留能力
+
+除即时零售工作台外，顶部导航仍保留上游的图片编辑和 AI 人物打标工具。图片生成接口继续支持原项目已有的 OpenAI 兼容接口、火山方舟、阿里云百炼等配置方式。
+
 ## 本地运行
 
 ```bash
@@ -65,7 +69,7 @@ npm ci
 npm run dev
 ```
 
-打开 Vite 输出的本地地址，在“接口设置”中配置可用的图片生成接口、API Key 和模型。项目沿用原工具的 OpenAI 兼容接口及已有供应商配置能力。
+打开 Vite 输出的本地地址，在“接口设置”中配置可用的图片生成接口、API Key 和模型。
 
 用于本地联调的模拟接口：
 
@@ -80,7 +84,7 @@ npm test
 npm run build
 ```
 
-测试覆盖类目匹配、商品资料校验、7+1 图片策划、特殊图真实性路由、平台尺寸、持久化、队列、中文合成、质检和 ZIP 导出。
+测试覆盖类目匹配、商品资料校验、7+1 图片策划、特殊图真实性路由、平台尺寸、持久化、队列、中文合成、质检、ZIP 导出及上游保留功能。
 
 ## 数据与隐私
 
@@ -91,4 +95,9 @@ npm run build
 
 ## 开源说明
 
-本项目在 [Ali-Aria/amazon-image-studio](https://github.com/Ali-Aria/amazon-image-studio) 基础上改造，原项目基于 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)。继续遵循仓库中的 [MIT License](LICENSE)。
+> [!IMPORTANT]
+> 本工具是免费开源软件，请以 [Ali-Aria/amazon-image-studio](https://github.com/Ali-Aria/amazon-image-studio) 作为官方核验入口。第三方收费仅代表其自行提供的部署、定制、培训或技术支持，不代表官方付费版、独家授权或买断更新。
+
+本项目在 `Ali-Aria/amazon-image-studio` 基础上改造，原项目基于 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)。源码继续遵循仓库中的 [MIT License](LICENSE)，使用和分发时必须保留版权与许可声明。
+
+模型服务、API Key 和调用额度不包含在本仓库中，相关费用由使用者自行承担。如发现冒充官方、删除署名或隐瞒开源来源的售卖行为，请通过 [GitHub Issues](https://github.com/Ali-Aria/amazon-image-studio/issues) 反馈。

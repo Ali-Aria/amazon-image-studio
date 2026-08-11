@@ -15,13 +15,16 @@ import type {
   InputImage,
   MaskDraft,
   RetailProject,
+  SeedreamAnnotation,
+  SeedreamEditorDraft,
   TaskRecord,
+  TaskImageEditContext,
   ExportData,
   ResponsesApiResponse,
   ResponsesOutputItem,
 } from './types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_PARAMS } from './types'
-import { canApiProfileGenerateImages, DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
+import { canApiProfileGenerateImages, createApiProfileRequestSettings, DEFAULT_SETTINGS, getActiveApiProfile, getAmazonPlannerProfile, getCustomProviderDefinition, getHomeApiProfile, getSeedreamEditorProfile, isImageStreamingEnabled, isVolcengineSeedreamProModel, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -55,7 +58,7 @@ import { getFalErrorMessage, getFalQueuedImageResult } from './lib/falAiImageApi
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
-import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
+import { getChangedParams, getInputImageLimitForSettings, normalizeParamsForSettings } from './lib/paramCompatibility'
 import { prepareReferenceImageAndMaskPayload } from './lib/referenceImagePayload'
 import { getTaskHistoryCategory } from './lib/taskHistory'
 import { isAmazonListingMainSlot } from './lib/listingPlanner'
@@ -87,7 +90,7 @@ const OPENAI_INTERRUPTED_ERROR = '请求中断'
 const AGENT_STOPPED_MESSAGE = '已停止生成。'
 const AGENT_CONVERSATION_TITLE_MAX_LENGTH = 28
 const ERROR_TOAST_MAX_LENGTH = 80
-const API_MAX_INPUT_IMAGES = 16
+const MAX_SEEDREAM_REFERENCE_IMAGES = 4
 type ToastType = 'info' | 'success' | 'error'
 type AgentInputDraft = {
   prompt: string
@@ -95,6 +98,17 @@ type AgentInputDraft = {
   maskDraft: MaskDraft | null
   maskEditorImageId: string | null
   updatedAt?: number
+}
+
+const DEFAULT_SEEDREAM_EDITOR_DRAFT: SeedreamEditorDraft = {
+  engine: 'home',
+  sourceImageId: null,
+  referenceImageIds: [],
+  instruction: '',
+  annotations: [],
+  resolution: '2k',
+  latestTaskId: null,
+  updatedAt: 0,
 }
 
 type PendingTaskCategory =
@@ -137,12 +151,14 @@ function createNextSubmitTaskCategory(task: TaskRecord): NonNullable<TaskRecord[
   const productTitle = hasExplicitProductTitle ? task.category?.productTitle?.trim() ?? '' : historyCategory.productTitle
   const amazonSlot = task.category?.amazonSlot?.trim() || historyCategory.amazonSlot
   const aPlusType = task.category?.aPlusType ?? historyCategory.aPlusType
+  const marketplaceId = task.category?.marketplaceId ?? historyCategory.marketplaceId
   const styleReferenceImageId = task.category?.styleReferenceImageId?.trim()
   const category: NonNullable<TaskRecord['category']> = { workflow }
 
   if (hasExplicitProductTitle || productTitle) category.productTitle = productTitle
   if (amazonSlot) category.amazonSlot = amazonSlot
   if (workflow === 'amazon-aplus' && aPlusType) category.aPlusType = aPlusType
+  category.marketplaceId = marketplaceId
   if (styleReferenceImageId && !(workflow === 'amazon-listing' && isAmazonListingMainSlot(amazonSlot))) {
     category.styleReferenceImageId = styleReferenceImageId
   }
@@ -187,18 +203,10 @@ function isErrorToastTitle(title: string): boolean {
 
 export type SettingsTab = 'general' | 'agent' | 'api' | 'data' | 'about'
 
-const TIMEOUT_STREAMING_HINT = '也可尝试打开「流式传输」，并提高「请求中间步骤图像数」来维持连接。'
-const TIMEOUT_PARTIAL_IMAGES_ZERO_HINT = '官方流式接口不发送心跳，当前「请求中间步骤图像数」为 0，连接可能因无数据传输而断开。建议提高到 2 或 3。'
-const TIMEOUT_PARTIAL_IMAGES_LOW_HINT = '也可尝试提高「请求中间步骤图像数」来维持连接，避免长时间无数据传输导致断开。'
-
 type TimeoutStreamingHintProfile = Pick<ApiProfile, 'provider' | 'streamImages' | 'streamPartialImages'>
 
-function getTimeoutStreamingHint(profile?: TimeoutStreamingHintProfile | null) {
-  if (profile?.provider !== 'openai') return ''
-  const partialImages = profile.streamPartialImages ?? DEFAULT_SETTINGS.streamPartialImages ?? 0
-  if (profile.streamImages !== true) return TIMEOUT_STREAMING_HINT
-  if (partialImages === 0) return TIMEOUT_PARTIAL_IMAGES_ZERO_HINT
-  return partialImages < 3 ? TIMEOUT_PARTIAL_IMAGES_LOW_HINT : ''
+function getTimeoutStreamingHint(_profile?: TimeoutStreamingHintProfile | null) {
+  return ''
 }
 
 function createOpenAITimeoutError(timeoutSeconds: number, profile?: TimeoutStreamingHintProfile | null) {
@@ -612,6 +620,7 @@ export function getPersistedState(state: AppState) {
     galleryInputDraft: settings.persistInputOnRestart && galleryInputDraft
       ? { ...galleryInputDraft, inputImages: galleryInputDraft.inputImages.map((img) => ({ id: img.id, dataUrl: '' })) }
       : null,
+    seedreamEditorDraft: state.seedreamEditorDraft,
     agentConversations: state.agentConversations,
     activeAgentConversationId: state.activeAgentConversationId,
     agentInputDrafts: getPersistableAgentInputDrafts(state),
@@ -668,6 +677,7 @@ export function mergePersistedState(persistedState: unknown, currentState: AppSt
     params,
     appMode,
     galleryInputDraft: galleryInputDraft && !isEmptyAgentInputDraft(galleryInputDraft) ? galleryInputDraft : null,
+    seedreamEditorDraft: normalizeSeedreamEditorDraft(persisted.seedreamEditorDraft),
     agentConversations,
     activeAgentConversationId,
     agentInputDrafts,
@@ -713,6 +723,9 @@ interface AppState {
   maskEditorImageId: string | null
   setMaskEditorImageId: (id: string | null) => void
   galleryInputDraft: AgentInputDraft | null
+  seedreamEditorDraft: SeedreamEditorDraft
+  setSeedreamEditorDraft: (patch: Partial<SeedreamEditorDraft>) => void
+  resetSeedreamEditorDraft: () => void
 
   // 参数
   params: TaskParams
@@ -824,13 +837,17 @@ interface AppState {
 function isImageReferencedByState(state: AppState, imageId: string) {
   if (state.inputImages.some((img) => img.id === imageId)) return true
   if (state.galleryInputDraft?.inputImages.some((img) => img.id === imageId)) return true
+  if (state.seedreamEditorDraft.sourceImageId === imageId || state.seedreamEditorDraft.referenceImageIds.includes(imageId)) return true
   if (Object.values(state.agentInputDrafts).some((draft) => draft.inputImages.some((img) => img.id === imageId))) return true
   if (state.tasks.some((task) =>
     task.inputImageIds.includes(imageId) ||
     task.outputImages.includes(imageId) ||
     task.streamPartialImageIds?.includes(imageId) ||
     task.maskTargetImageId === imageId ||
-    task.maskImageId === imageId
+    task.maskImageId === imageId ||
+    task.imageEditContext?.sourceImageId === imageId ||
+    task.imageEditContext?.visualGuideImageId === imageId ||
+    task.imageEditContext?.referenceImageIds.includes(imageId)
   )) return true
   return state.agentConversations.some((conversation) =>
     conversation.rounds.some((round) =>
@@ -1079,8 +1096,8 @@ export const useStore = create<AppState>()(
                   apiMode: incoming.apiMode === 'images' || incoming.apiMode === 'responses' || incoming.apiMode === 'chat' ? incoming.apiMode : profile.apiMode,
                   codexCli: incoming.codexCli ?? profile.codexCli,
                   apiProxy: incoming.apiProxy ?? profile.apiProxy,
-                  streamImages: incoming.streamImages ?? profile.streamImages,
-                  streamPartialImages: incoming.streamPartialImages ?? profile.streamPartialImages,
+                  streamImages: false,
+                  streamPartialImages: DEFAULT_SETTINGS.streamPartialImages,
                 }
               : profile,
           )
@@ -1194,6 +1211,17 @@ export const useStore = create<AppState>()(
         set((s) => syncActiveInputDraft(s, { maskEditorImageId }))
       },
       galleryInputDraft: null,
+      seedreamEditorDraft: { ...DEFAULT_SEEDREAM_EDITOR_DRAFT },
+      setSeedreamEditorDraft: (patch) => set((state) => ({
+        seedreamEditorDraft: normalizeSeedreamEditorDraft({
+          ...state.seedreamEditorDraft,
+          ...patch,
+          updatedAt: Date.now(),
+        }),
+      })),
+      resetSeedreamEditorDraft: () => set({
+        seedreamEditorDraft: { ...DEFAULT_SEEDREAM_EDITOR_DRAFT, updatedAt: Date.now() },
+      }),
 
       // Params
       params: { ...DEFAULT_PARAMS },
@@ -1528,10 +1556,58 @@ function getFalRecoveryProfile(settings: AppSettings, task: TaskRecord) {
 
 function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord) {
   const provider = task.apiProvider
-  if (!provider || provider === 'openai' || provider === 'fal') return null
+  if (!provider || provider === 'openai' || provider === 'fal' || provider === 'volcengine') return null
   const taskProfile = getTaskApiProfile(settings, task)
   if (taskProfile?.provider === provider) return taskProfile
   return null
+}
+
+function normalizeSeedreamAnnotation(value: unknown): SeedreamAnnotation | null {
+  if (!isRecord(value) || typeof value.id !== 'string') return null
+  if (value.kind !== 'brush' && value.kind !== 'rectangle' && value.kind !== 'ellipse' && value.kind !== 'arrow') return null
+  if (!Array.isArray(value.points)) return null
+  const points = value.points
+    .map((point) => {
+      if (!isRecord(point) || typeof point.x !== 'number' || typeof point.y !== 'number') return null
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null
+      return {
+        x: Math.min(1, Math.max(0, point.x)),
+        y: Math.min(1, Math.max(0, point.y)),
+      }
+    })
+    .filter((point): point is { x: number; y: number } => point != null)
+  if (points.length < 2) return null
+  return {
+    id: value.id,
+    kind: value.kind,
+    color: typeof value.color === 'string' && value.color.trim() ? value.color : '#ef4444',
+    width: typeof value.width === 'number' && Number.isFinite(value.width)
+      ? Math.min(0.1, Math.max(0.001, value.width))
+      : 0.006,
+    points,
+  }
+}
+
+export function normalizeSeedreamEditorDraft(value: unknown): SeedreamEditorDraft {
+  const draft = isRecord(value) ? value : {}
+  const sourceImageId = typeof draft.sourceImageId === 'string' && draft.sourceImageId ? draft.sourceImageId : null
+  const referenceImageIds = Array.isArray(draft.referenceImageIds)
+    ? Array.from(new Set(draft.referenceImageIds.filter((id): id is string => typeof id === 'string' && Boolean(id))))
+      .filter((id) => id !== sourceImageId)
+      .slice(0, MAX_SEEDREAM_REFERENCE_IMAGES)
+    : []
+  return {
+    engine: draft.engine === 'seedream' ? 'seedream' : 'home',
+    sourceImageId,
+    referenceImageIds,
+    instruction: typeof draft.instruction === 'string' ? draft.instruction : '',
+    annotations: Array.isArray(draft.annotations)
+      ? draft.annotations.map(normalizeSeedreamAnnotation).filter((item): item is SeedreamAnnotation => item != null)
+      : [],
+    resolution: draft.resolution === '4k' ? '4k' : '2k',
+    latestTaskId: typeof draft.latestTaskId === 'string' && draft.latestTaskId ? draft.latestTaskId : null,
+    updatedAt: typeof draft.updatedAt === 'number' && Number.isFinite(draft.updatedAt) ? draft.updatedAt : 0,
+  }
 }
 
 export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ApiProfile | null {
@@ -1546,19 +1622,7 @@ export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ApiP
 }
 
 function createSettingsForApiProfile(settings: AppSettings, profile: ApiProfile): AppSettings {
-  const normalized = normalizeSettings(settings)
-  return normalizeSettings({
-    ...normalized,
-    baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey,
-    model: profile.model,
-    timeout: profile.timeout,
-    apiMode: profile.apiMode,
-    codexCli: profile.codexCli,
-    apiProxy: profile.apiProxy,
-    profiles: normalized.profiles.map((item) => item.id === profile.id ? profile : item),
-    activeProfileId: profile.id,
-  })
+  return createApiProfileRequestSettings(settings, profile) ?? normalizeSettings(settings)
 }
 
 function getReusedTaskApiProfile(settings: AppSettings, profileId: string | null): ApiProfile | null {
@@ -1607,7 +1671,7 @@ function getApiRequestNetworkErrorHint(
     const unsupportedApiHint = profile?.provider === 'openai'
       ? `\n· API 不支持 ${getApiModeApiName(profile.apiMode)}`
       : ''
-    return `提示：请求立即失败，可能原因：\n· API 服务器不可达或地址有误，请检查 API URL 是否正确、服务是否正常运行${unsupportedApiHint}\n· 接口不支持浏览器跨域请求，可使用 Docker 部署版或本地运行版并配置 API 代理解决`
+    return `提示：请求立即失败，可能原因：\n· API 服务器不可达或地址有误，请检查 API URL 是否正确、服务是否正常运行${unsupportedApiHint}\n· 接口不支持浏览器跨域请求，可改用支持 CORS 的 API 地址，或使用 Docker/Nginx 部署版开启同源 API 代理解决`
   }
 
   if (elapsedSeconds >= 55 && elapsedSeconds <= 75) {
@@ -1810,12 +1874,14 @@ export async function initStore() {
   const state = useStore.getState()
   const persistedInputImages = state.inputImages
   const galleryInputDraft = state.galleryInputDraft
+  const seedreamEditorDraft = state.seedreamEditorDraft
   const agentConversations = state.agentConversations
   const agentInputDrafts = state.agentInputDrafts
   for (const img of persistedInputImages) referencedIds.add(img.id)
   if (galleryInputDraft) {
     for (const img of galleryInputDraft.inputImages) referencedIds.add(img.id)
   }
+  addSeedreamEditorDraftReferencedImageIds(referencedIds, seedreamEditorDraft)
   for (const draft of Object.values(agentInputDrafts)) {
     for (const img of draft.inputImages) referencedIds.add(img.id)
   }
@@ -1840,6 +1906,21 @@ export async function initStore() {
     }
   }
   scheduleThumbnailBackfill(referencedImageIds)
+
+  const availableImageIds = new Set(imageIds)
+  const restoredSeedreamDraft = normalizeSeedreamEditorDraft({
+    ...seedreamEditorDraft,
+    sourceImageId: seedreamEditorDraft.sourceImageId && availableImageIds.has(seedreamEditorDraft.sourceImageId)
+      ? seedreamEditorDraft.sourceImageId
+      : null,
+    referenceImageIds: seedreamEditorDraft.referenceImageIds.filter((id) => availableImageIds.has(id)),
+  })
+  if (
+    restoredSeedreamDraft.sourceImageId !== seedreamEditorDraft.sourceImageId ||
+    restoredSeedreamDraft.referenceImageIds.length !== seedreamEditorDraft.referenceImageIds.length
+  ) {
+    useStore.setState({ seedreamEditorDraft: restoredSeedreamDraft })
+  }
 
   const restoredInputImages: InputImage[] = []
   for (const img of persistedInputImages) {
@@ -1939,16 +2020,121 @@ export async function initStore() {
   }
 }
 
-/** 提交新任务 */
+export interface SubmitTaskWithInputRequest {
+  apiProfileId: string
+  prompt: string
+  inputImages: InputImage[]
+  params: TaskParams
+  category: NonNullable<TaskRecord['category']>
+  imageEditContext?: TaskImageEditContext
+  maskTargetImageId?: string | null
+  maskImageId?: string | null
+}
+
+/** 使用指定配置和输入创建任务，不读取或修改首页输入状态。 */
+export async function submitTaskWithInput(request: SubmitTaskWithInputRequest): Promise<string | null> {
+  const state = useStore.getState()
+  const settings = normalizeSettings(state.settings)
+  const homeProfile = getHomeApiProfile(state.settings)
+  const profile = homeProfile.id === request.apiProfileId
+    ? homeProfile
+    : settings.profiles.find((item) => item.id === request.apiProfileId)
+  if (!profile) {
+    state.showToast('找不到指定的 API 配置', 'error')
+    return null
+  }
+  if (!canApiProfileGenerateImages(profile)) {
+    state.showToast(`配置「${profile.name}」不能生成图片`, 'error')
+    return null
+  }
+  const profileError = validateApiProfile(profile)
+  if (profileError) {
+    state.showToast(`请先完善 API 配置：${profileError}`, 'error')
+    return null
+  }
+
+  const prompt = request.prompt.trim()
+  if (!prompt) {
+    state.showToast('请输入编辑要求', 'error')
+    return null
+  }
+  const requestSettings = createSettingsForApiProfile(settings, profile)
+  const inputImageLimit = getInputImageLimitForSettings(requestSettings)
+  if (request.inputImages.length > inputImageLimit) {
+    state.showToast(`参考图数量不能超过 ${inputImageLimit} 张`, 'error')
+    return null
+  }
+
+  const storedImages: InputImage[] = []
+  const imageIdMap = new Map<string, string>()
+  try {
+    for (const image of request.inputImages) {
+      const dataUrl = image.dataUrl || await ensureImageCached(image.id)
+      if (!dataUrl) throw new Error('输入图片已不存在')
+      const existing = await getImage(image.id)
+      if (!existing) {
+        await putImage({ id: image.id, dataUrl, source: 'upload', createdAt: Date.now() })
+      }
+      cacheImage(image.id, dataUrl)
+      imageIdMap.set(image.id, image.id)
+      storedImages.push({ id: image.id, dataUrl })
+    }
+  } catch (error) {
+    state.showToast(error instanceof Error ? error.message : String(error), 'error')
+    return null
+  }
+
+  const params = normalizeParamsForSettings(request.params, requestSettings, { hasInputImages: storedImages.length > 0 })
+  const mapImageId = (id: string | null | undefined) => id ? imageIdMap.get(id) ?? id : id
+  const imageEditContext = request.imageEditContext
+    ? {
+        ...request.imageEditContext,
+        sourceImageId: mapImageId(request.imageEditContext.sourceImageId)!,
+        visualGuideImageId: mapImageId(request.imageEditContext.visualGuideImageId),
+        referenceImageIds: request.imageEditContext.referenceImageIds.map((id) => mapImageId(id)!),
+      }
+    : undefined
+  const taskId = genId()
+  const task: TaskRecord = {
+    id: taskId,
+    prompt,
+    params,
+    apiProvider: profile.provider,
+    apiProfileId: profile.id,
+    apiProfileName: profile.name,
+    apiMode: profile.apiMode,
+    apiModel: profile.model,
+    inputImageIds: storedImages.map((image) => image.id),
+    maskTargetImageId: mapImageId(request.maskTargetImageId) ?? null,
+    maskImageId: request.maskImageId ?? null,
+    outputImages: [],
+    status: 'running',
+    error: null,
+    createdAt: Date.now(),
+    finishedAt: null,
+    elapsed: null,
+    category: request.category,
+    imageEditContext,
+  }
+
+  useStore.getState().setTasks([task, ...useStore.getState().tasks])
+  await putTask(task)
+  useStore.getState().showToast('任务已提交', 'success')
+  void executeTask(taskId)
+  return taskId
+}
+
+/** 首页兼容提交入口。 */
 export async function submitTask(options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {}): Promise<boolean> {
   const { settings, prompt, inputImages, maskDraft, params, reusedTaskApiProfileId, reusedTaskApiProfileName, reusedTaskApiProfileMissing, pendingTaskCategory, showToast, setConfirmDialog } =
     useStore.getState()
 
   const normalizedSettings = normalizeSettings(settings)
-  let activeProfile = getActiveApiProfile(settings)
+  let activeProfile = getHomeApiProfile(settings)
   let requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
   if (normalizedSettings.reuseTaskApiProfileTemporarily && (reusedTaskApiProfileId || reusedTaskApiProfileMissing)) {
-    const reusedProfile = getReusedTaskApiProfile(normalizedSettings, reusedTaskApiProfileId)
+    const candidateProfile = getReusedTaskApiProfile(normalizedSettings, reusedTaskApiProfileId)
+    const reusedProfile = candidateProfile?.provider === 'volcengine' ? null : candidateProfile
     if (!reusedProfile) {
       if (options.useCurrentApiProfileWhenReusedMissing) {
         useStore.getState().setReusedTaskApiProfile(null)
@@ -1995,6 +2181,11 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     return false
   }
   const category = resolvePendingTaskCategory(pendingTaskCategory, trimmedPrompt)
+  const inputImageLimit = getInputImageLimitForSettings(requestSettings)
+  if (inputImages.length > inputImageLimit) {
+    showToast(`参考图数量不能超过 ${inputImageLimit} 张`, 'error')
+    return false
+  }
 
   let orderedInputImages = inputImages
   let maskImageId: string | null = null
@@ -2030,8 +2221,8 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
 
   const styleReferenceImageId = category.styleReferenceImageId?.trim()
   if (styleReferenceImageId && !orderedInputImages.some((img) => img.id === styleReferenceImageId)) {
-    if (orderedInputImages.length + 1 > API_MAX_INPUT_IMAGES) {
-      showToast(`已选择隐藏风格参考板，实际参考图数量不能超过 ${API_MAX_INPUT_IMAGES} 张；请删除一张产品参考图后再提交。`, 'error')
+    if (orderedInputImages.length + 1 > inputImageLimit) {
+      showToast(`已选择隐藏风格参考板，实际参考图数量不能超过 ${inputImageLimit} 张；请删除一张产品参考图后再提交。`, 'error')
       return false
     }
     const dataUrl = await ensureImageCached(styleReferenceImageId)
@@ -2042,43 +2233,22 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     orderedInputImages = [...orderedInputImages, { id: styleReferenceImageId, dataUrl }]
   }
 
-  // 持久化输入图片到 IndexedDB（此前只在内存缓存中）
-  for (const img of orderedInputImages) {
-    await storeImage(img.dataUrl)
-  }
-
   const normalizedParams = normalizeParamsForSettings(params, requestSettings, { hasInputImages: orderedInputImages.length > 0 })
   const normalizedParamPatch = getChangedParams(params, normalizedParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
   }
 
-  const taskId = genId()
-  const task: TaskRecord = {
-    id: taskId,
-    prompt: trimmedPrompt,
-    params: normalizedParams,
-    apiProvider: activeProfile.provider,
+  const taskId = await submitTaskWithInput({
     apiProfileId: activeProfile.id,
-    apiProfileName: activeProfile.name,
-    apiMode: activeProfile.apiMode,
-    apiModel: activeProfile.model,
-    inputImageIds: orderedInputImages.map((i) => i.id),
+    prompt: trimmedPrompt,
+    inputImages: orderedInputImages,
+    params: normalizedParams,
+    category,
     maskTargetImageId,
     maskImageId,
-    outputImages: [],
-    status: 'running',
-    error: null,
-    createdAt: Date.now(),
-    finishedAt: null,
-    elapsed: null,
-    category,
-  }
-
-  const latestTasks = useStore.getState().tasks
-  useStore.getState().setTasks([task, ...latestTasks])
-  await putTask(task)
-  useStore.getState().showToast('任务已提交', 'success')
+  })
+  if (!taskId) return false
 
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
@@ -2087,8 +2257,6 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   useStore.getState().setReusedTaskApiProfile(null)
   useStore.getState().setPendingTaskCategory(null)
 
-  // 异步调用 API
-  executeTask(taskId)
   return true
 }
 
@@ -2118,8 +2286,10 @@ export async function submitPreparedTask(input: PreparedTaskSubmission): Promise
   const prompt = input.prompt.trim()
   if (!prompt) throw new Error('生成提示词不能为空')
   if (input.inputImages.length === 0) throw new Error('请先上传商品原图')
-  if (input.inputImages.length > API_MAX_INPUT_IMAGES) {
-    throw new Error(`参考图不能超过 ${API_MAX_INPUT_IMAGES} 张`)
+  const requestSettings = createSettingsForApiProfile(settings, activeProfile)
+  const inputImageLimit = getInputImageLimitForSettings(requestSettings)
+  if (input.inputImages.length > inputImageLimit) {
+    throw new Error(`参考图不能超过 ${inputImageLimit} 张`)
   }
 
   for (const image of input.inputImages) {
@@ -2127,7 +2297,6 @@ export async function submitPreparedTask(input: PreparedTaskSubmission): Promise
     cacheImage(image.id, image.dataUrl)
   }
 
-  const requestSettings = createSettingsForApiProfile(settings, activeProfile)
   const params = normalizeParamsForSettings(input.params, requestSettings, { hasInputImages: true })
   const taskId = genId()
   const task = createPreparedTaskRecord({
@@ -2408,9 +2577,17 @@ function addInputDraftReferencedImageIds(target: Set<string>, draft: AgentInputD
   for (const img of draft.inputImages) target.add(img.id)
 }
 
+function addSeedreamEditorDraftReferencedImageIds(target: Set<string>, draft = useStore.getState().seedreamEditorDraft) {
+  if (draft.sourceImageId) target.add(draft.sourceImageId)
+  for (const id of draft.referenceImageIds) target.add(id)
+}
+
 function addTaskReferencedImageIds(target: Set<string>, task: TaskRecord) {
   for (const id of task.inputImageIds || []) target.add(id)
   if (task.maskImageId) target.add(task.maskImageId)
+  if (task.imageEditContext?.sourceImageId) target.add(task.imageEditContext.sourceImageId)
+  if (task.imageEditContext?.visualGuideImageId) target.add(task.imageEditContext.visualGuideImageId)
+  for (const id of task.imageEditContext?.referenceImageIds || []) target.add(id)
   for (const id of task.outputImages || []) target.add(id)
   for (const id of task.streamPartialImageIds || []) target.add(id)
 }
@@ -2430,6 +2607,7 @@ async function deleteUnreferencedImageIds(imageIds: Iterable<string>) {
   for (const task of tasks) addTaskReferencedImageIds(stillUsed, task)
   addAgentReferencedImageIds(stillUsed)
   addInputDraftReferencedImageIds(stillUsed, galleryInputDraft)
+  addSeedreamEditorDraftReferencedImageIds(stillUsed)
   for (const img of inputImages) stillUsed.add(img.id)
   addRetailProjectReferencedImageIds(stillUsed, await getAllRetailProjects())
 
@@ -2796,9 +2974,9 @@ export async function submitAgentMessage() {
   const state = useStore.getState()
   const { settings, prompt, inputImages, maskDraft, params, showToast } = state
   const normalizedSettings = normalizeSettings(settings)
-  const activeProfile = getActiveApiProfile(normalizedSettings)
+  const activeProfile = getAmazonPlannerProfile(normalizedSettings)
 
-  if (activeProfile.provider !== 'openai' || activeProfile.apiMode !== 'responses') {
+  if (!activeProfile || activeProfile.provider !== 'openai' || activeProfile.apiMode !== 'responses') {
     state.setAppMode('agent')
     return
   }
@@ -2946,9 +3124,9 @@ export async function regenerateAgentAssistantMessage(conversationId: string, ro
   const state = useStore.getState()
   const { settings, params, showToast } = state
   const normalizedSettings = normalizeSettings(settings)
-  const activeProfile = getActiveApiProfile(normalizedSettings)
+  const activeProfile = getAmazonPlannerProfile(normalizedSettings)
 
-  if (activeProfile.provider !== 'openai' || activeProfile.apiMode !== 'responses') {
+  if (!activeProfile || activeProfile.provider !== 'openai' || activeProfile.apiMode !== 'responses') {
     state.setAppMode('agent')
     return
   }
@@ -3078,7 +3256,7 @@ async function executeAgentRound(
       ? conversation.messages.find((message) => message.id === round.assistantMessageId) ?? null
       : conversation.messages.find((message) => message.roundId === roundId && message.role === 'assistant') ?? null
     const assistantMessageId = existingAssistantMessage?.id ?? genId()
-    const shouldStreamAssistantMessage = activeProfile.streamImages === true
+    const shouldStreamAssistantMessage = isImageStreamingEnabled(activeProfile)
     const streamingTaskIds: string[] = []
     const taskIdByToolCallId = new Map<string, string>()
 
@@ -3722,7 +3900,7 @@ async function executeTask(taskId: string) {
       cacheImage(imgId, dataUrl)
       outputIds.push(imgId)
     }
-    const isAsyncCustomTask = taskProvider !== 'fal' && taskProvider !== 'openai' && Boolean(customTaskInfo)
+    const isAsyncCustomTask = taskProvider !== 'fal' && taskProvider !== 'openai' && taskProvider !== 'volcengine' && Boolean(customTaskInfo)
     const actualParamsList = taskProvider === 'fal'
       ? await resolveImageSizeParamsList(result.images, result.actualParamsList)
       : isAsyncCustomTask
@@ -3825,8 +4003,8 @@ async function executeTask(taskId: string) {
       const hintProfile = profile ?? {
         provider: latestTask.apiProvider ?? activeProfile.provider,
         apiMode: settings.apiMode,
-        streamImages: activeProfile.streamImages,
-        streamPartialImages: activeProfile.streamPartialImages,
+        streamImages: false,
+        streamPartialImages: DEFAULT_SETTINGS.streamPartialImages,
       }
       const networkErrorHint = getApiRequestNetworkErrorHint(err, latestTask.createdAt, usesApiProxy, hintProfile)
       if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
@@ -3865,7 +4043,31 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
 /** 重试失败的任务：创建新任务并执行 */
 export async function retryTask(task: TaskRecord) {
   const { settings, setConfirmDialog } = useStore.getState()
-  const activeProfile = getActiveApiProfile(settings)
+  const isImageEdit = getTaskHistoryCategory(task).workflow === 'seedream-edit'
+  const editorEngine = task.imageEditContext?.engine
+    ?? (task.apiProvider === 'volcengine' ? 'seedream' : 'home')
+  const activeProfile = isImageEdit
+    ? getTaskApiProfile(settings, task)
+      ?? (editorEngine === 'seedream' ? getSeedreamEditorProfile(settings) : getHomeApiProfile(settings))
+    : getHomeApiProfile(settings)
+  const profileError = activeProfile
+    ? validateApiProfile(activeProfile)
+      ?? (isImageEdit && editorEngine === 'seedream' && (activeProfile.provider !== 'volcengine' || !isVolcengineSeedreamProModel(activeProfile.model))
+        ? 'Seedream 编辑必须使用 Seedream 5.0 Pro 配置'
+        : null)
+    : null
+  if (!activeProfile || profileError) {
+    setConfirmDialog({
+      title: isImageEdit ? '图片编辑配置不可用' : '首页生图配置不可用',
+      message: profileError
+        ? `重试此任务前请完善${isImageEdit && editorEngine === 'seedream' ? ' Seedream Pro' : '首页生图'}配置：${profileError}`
+        : `重试此任务需要可用的${isImageEdit && editorEngine === 'seedream' ? ' Seedream Pro' : '首页生图'}配置。`,
+      confirmText: '前往设置',
+      cancelText: '取消',
+      action: () => useStore.getState().setShowSettings(true, 'api'),
+    })
+    return
+  }
   if (!canApiProfileGenerateImages(activeProfile)) {
     setConfirmDialog({
       title: '当前配置不能生图',
@@ -3878,7 +4080,8 @@ export async function retryTask(task: TaskRecord) {
     })
     return
   }
-  const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
+  const requestSettings = createSettingsForApiProfile(settings, activeProfile)
+  const normalizedParams = normalizeParamsForSettings(task.params, requestSettings, { hasInputImages: task.inputImageIds.length > 0 })
   const taskId = genId()
   const newTask: TaskRecord = {
     id: taskId,
@@ -3899,21 +4102,79 @@ export async function retryTask(task: TaskRecord) {
     finishedAt: null,
     elapsed: null,
     category: task.category,
+    imageEditContext: task.imageEditContext ? {
+      ...task.imageEditContext,
+      referenceImageIds: [...task.imageEditContext.referenceImageIds],
+    } : undefined,
   }
 
   const latestTasks = useStore.getState().tasks
   useStore.getState().setTasks([newTask, ...latestTasks])
   await putTask(newTask)
 
-  executeTask(taskId)
+  if (isImageEdit) useStore.getState().setSeedreamEditorDraft({ engine: editorEngine, latestTaskId: taskId })
+
+  void executeTask(taskId)
+}
+
+function navigateToSeedreamEditor() {
+  useStore.setState({ detailTaskId: null, lightboxImageId: null, lightboxImageList: [] })
+  if (typeof window !== 'undefined' && window.location.hash !== '#/editor') window.location.hash = '/editor'
+}
+
+function getSeedreamEditorResolutionFromSize(size: string): SeedreamEditorDraft['resolution'] {
+  if (size.toUpperCase().includes('4K')) return '4k'
+  const match = size.match(/^(\d+)\s*[xX×]\s*(\d+)$/)
+  return match && Math.max(Number(match[1]), Number(match[2])) > 2048 ? '4k' : '2k'
+}
+
+export function openImageInSeedreamEditor(imageId: string) {
+  if (!imageId) return
+  const state = useStore.getState()
+  state.setSeedreamEditorDraft({
+    sourceImageId: imageId,
+    referenceImageIds: state.seedreamEditorDraft.referenceImageIds.filter((id) => id !== imageId),
+    instruction: '',
+    annotations: [],
+    latestTaskId: null,
+  })
+  navigateToSeedreamEditor()
+  state.showToast('已在图片编辑中打开', 'success')
+}
+
+export function openSeedreamTaskInEditor(task: TaskRecord) {
+  const context = task.imageEditContext
+  const sourceImageId = context?.sourceImageId || task.inputImageIds[0]
+  if (!sourceImageId) {
+    useStore.getState().showToast('此任务缺少可恢复的编辑主图', 'error')
+    return
+  }
+  const state = useStore.getState()
+  const keepAnnotations = state.seedreamEditorDraft.sourceImageId === sourceImageId && state.seedreamEditorDraft.latestTaskId === task.id
+  state.setSeedreamEditorDraft({
+    engine: context?.engine ?? (task.apiProvider === 'volcengine' ? 'seedream' : 'home'),
+    sourceImageId,
+    referenceImageIds: (context?.referenceImageIds ?? []).filter((id) => id !== sourceImageId).slice(0, MAX_SEEDREAM_REFERENCE_IMAGES),
+    instruction: context?.userInstruction ?? task.prompt,
+    annotations: keepAnnotations ? state.seedreamEditorDraft.annotations : [],
+    resolution: getSeedreamEditorResolutionFromSize(task.params.size),
+    latestTaskId: task.id,
+  })
+  navigateToSeedreamEditor()
+  state.showToast('已恢复图片编辑任务', 'success')
 }
 
 /** 复用配置 */
 export async function reuseConfig(task: TaskRecord) {
+  if (getTaskHistoryCategory(task).workflow === 'seedream-edit') {
+    openSeedreamTaskInEditor(task)
+    return
+  }
   const { settings, setPrompt, setParams, setInputImages, setMaskDraft, clearMaskDraft, showToast, setConfirmDialog, setReusedTaskApiProfile, setPendingTaskCategory } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
-  const currentProfile = getActiveApiProfile(settings)
-  const matchedProfile = normalizedSettings.reuseTaskApiProfileTemporarily ? getTaskApiProfile(normalizedSettings, task) : null
+  const currentProfile = getHomeApiProfile(settings)
+  const candidateProfile = normalizedSettings.reuseTaskApiProfileTemporarily ? getTaskApiProfile(normalizedSettings, task) : null
+  const matchedProfile = candidateProfile?.provider === 'volcengine' ? null : candidateProfile
   const shouldTemporarilyReuseProfile = Boolean(matchedProfile && matchedProfile.id !== currentProfile.id)
   const missingReusedProfile = normalizedSettings.reuseTaskApiProfileTemporarily && !matchedProfile
   const taskProfileName = matchedProfile?.name ?? getTaskApiProfileName(task)
@@ -3979,9 +4240,9 @@ export async function reuseConfig(task: TaskRecord) {
   )
 }
 
-/** 编辑输出：清空当前输入，只保留待编辑的输出图 */
+/** 将任意历史输出作为独立图片编辑器的主图。 */
 export async function editOutputs(task: TaskRecord, selectedOutputImageId?: string) {
-  const { showToast, setPendingTaskCategory } = useStore.getState()
+  const { showToast } = useStore.getState()
   const outputImageId = selectedOutputImageId && task.outputImages?.includes(selectedOutputImageId)
     ? selectedOutputImageId
     : task.outputImages?.[0]
@@ -3993,22 +4254,12 @@ export async function editOutputs(task: TaskRecord, selectedOutputImageId?: stri
     return
   }
 
-  useStore.setState((state) => syncActiveInputDraft(state, {
-    prompt: '',
-    inputImages: [{ id: outputImageId, dataUrl }],
-    maskDraft: null,
-    maskEditorImageId: null,
-  }))
-  setPendingTaskCategory({
-    mode: 'next-submit',
-    category: createNextSubmitTaskCategory(task),
-  })
-  showToast('已准备编辑输出图', 'success')
+  openImageInSeedreamEditor(outputImageId)
 }
 
 /** 删除多条任务 */
 export async function removeMultipleTasks(taskIds: string[]) {
-  const { tasks, setTasks, inputImages, galleryInputDraft, showToast, clearSelection, selectedTaskIds } = useStore.getState()
+  const { tasks, setTasks, inputImages, galleryInputDraft, seedreamEditorDraft, showToast, selectedTaskIds } = useStore.getState()
   
   if (!taskIds.length) return
 
@@ -4025,6 +4276,9 @@ export async function removeMultipleTasks(taskIds: string[]) {
   }
 
   setTasks(remaining)
+  if (toDelete.has(useStore.getState().seedreamEditorDraft.latestTaskId ?? '')) {
+    useStore.getState().setSeedreamEditorDraft({ latestTaskId: null })
+  }
   for (const id of taskIds) {
     await dbDeleteTask(id)
   }
@@ -4036,6 +4290,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
   }
   addAgentReferencedImageIds(stillUsed)
   addInputDraftReferencedImageIds(stillUsed, galleryInputDraft)
+  addSeedreamEditorDraftReferencedImageIds(stillUsed, seedreamEditorDraft)
   for (const img of inputImages) stillUsed.add(img.id)
   addRetailProjectReferencedImageIds(stillUsed, await getAllRetailProjects())
 
@@ -4059,19 +4314,18 @@ export async function removeMultipleTasks(taskIds: string[]) {
 
 /** 删除单条任务 */
 export async function removeTask(task: TaskRecord) {
-  const { tasks, setTasks, inputImages, galleryInputDraft, showToast } = useStore.getState()
+  const { tasks, setTasks, inputImages, galleryInputDraft, seedreamEditorDraft, showToast } = useStore.getState()
 
   // 收集此任务关联的图片
-  const taskImageIds = new Set([
-    ...(task.inputImageIds || []),
-    ...(task.maskImageId ? [task.maskImageId] : []),
-    ...(task.outputImages || []),
-    ...(task.streamPartialImageIds || []),
-  ])
+  const taskImageIds = new Set<string>()
+  addTaskReferencedImageIds(taskImageIds, task)
 
   // 从列表移除
   const remaining = await scrubAgentOutputPayloadsForDeletedTasks([task], tasks.filter((t) => t.id !== task.id))
   setTasks(remaining)
+  if (useStore.getState().seedreamEditorDraft.latestTaskId === task.id) {
+    useStore.getState().setSeedreamEditorDraft({ latestTaskId: null })
+  }
   await dbDeleteTask(task.id)
 
   // 找出其他任务仍引用的图片
@@ -4081,6 +4335,7 @@ export async function removeTask(task: TaskRecord) {
   }
   addAgentReferencedImageIds(stillUsed)
   addInputDraftReferencedImageIds(stillUsed, galleryInputDraft)
+  addSeedreamEditorDraftReferencedImageIds(stillUsed, seedreamEditorDraft)
   for (const img of inputImages) stillUsed.add(img.id)
 
   // 删除孤立图片
@@ -4103,7 +4358,7 @@ export interface ClearOptions {
 
 /** 清空数据 */
 export async function clearData(options: ClearOptions = { clearConfig: true, clearTasks: true }) {
-  const { setTasks, clearInputImages, clearMaskDraft, setSettings, setParams, showToast } = useStore.getState()
+  const { setTasks, clearInputImages, clearMaskDraft, resetSeedreamEditorDraft, setSettings, setParams, showToast } = useStore.getState()
 
   if (options.clearTasks) {
     await dbClearTasks()
@@ -4123,6 +4378,7 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     clearInputImages()
     clearMaskDraft()
     notifyRetailProjectsChanged()
+    resetSeedreamEditorDraft()
   }
 
   if (options.clearConfig) {
@@ -4474,6 +4730,10 @@ export async function addImageFromFile(file: File): Promise<void> {
 export async function createInputImageFromFile(file: File): Promise<InputImage | null> {
   if (!file.type.startsWith('image/')) return null
   const dataUrl = await fileToDataUrl(file)
+  return createInputImageFromDataUrl(dataUrl)
+}
+
+export async function createInputImageFromDataUrl(dataUrl: string): Promise<InputImage> {
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)
   return { id, dataUrl }
@@ -4481,13 +4741,16 @@ export async function createInputImageFromFile(file: File): Promise<InputImage |
 
 /** 添加图片到输入（右键菜单）—— 支持 data/blob/http URL */
 export async function addImageFromUrl(src: string): Promise<void> {
+  const image = await createInputImageFromUrl(src)
+  useStore.getState().addInputImage(image)
+}
+
+export async function createInputImageFromUrl(src: string): Promise<InputImage> {
   const res = await fetch(src)
   const blob = await res.blob()
   if (!blob.type.startsWith('image/')) throw new Error('不是有效的图片')
   const dataUrl = await blobToDataUrl(blob)
-  const id = await storeImage(dataUrl, 'upload')
-  cacheImage(id, dataUrl)
-  useStore.getState().addInputImage({ id, dataUrl })
+  return createInputImageFromDataUrl(dataUrl)
 }
 
 function fileToDataUrl(file: File): Promise<string> {

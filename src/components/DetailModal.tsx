@@ -12,7 +12,10 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { downloadImageIds } from '../lib/downloadImages'
 import { isAgentTaskPromptPending } from '../lib/taskPromptDisplay'
 import { getAspectLabel, getTaskHistoryCategory, getWorkflowLabel } from '../lib/taskHistory'
+import { getAmazonMarketplaceLabel } from '../lib/amazonMarketplaces'
+import { getApiProviderLabel } from '../lib/apiProfiles'
 import { CloseIcon, CodeIcon, CopyIcon, DownloadIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
+import { useSheetDrag } from './Sheet'
 
 import ViewportTooltip from './ViewportTooltip'
 
@@ -47,6 +50,9 @@ export default function DetailModal() {
 
   const rawUrlsBackdropPointerDownRef = useRef(false)
   const rawResponseBackdropPointerDownRef = useRef(false)
+  const mainSheetDrag = useSheetDrag(() => setDetailTaskId(null))
+  const rawUrlsSheetDrag = useSheetDrag(() => setShowRawUrlsModal(false))
+  const rawResponseSheetDrag = useSheetDrag(() => setShowRawResponseModal(false))
 
   const copyErrorTooltip = useTooltip()
   const copyRawUrlsTooltip = useTooltip()
@@ -225,7 +231,7 @@ export default function DetailModal() {
   const taskProvider = task.apiProvider
   const isOpenAiTask = (taskProvider ?? 'openai') === 'openai'
   const showPromptWarning = Boolean(isOpenAiTask && task.apiMode === 'responses' && currentOutputImageId && (!currentRevisedPrompt || showRevisedPrompt) && !hasHandledPromptWarning)
-  const taskProviderName = taskProvider === 'fal' ? 'fal.ai' : taskProvider ? 'OpenAI' : '未知'
+  const taskProviderName = taskProvider ? getApiProviderLabel(settings, taskProvider) : '未知'
   const taskProfileName = task.apiProfileName || '未知'
   const taskModel = task.apiModel || '未知'
   const showSourceInfo = Boolean(task.apiProvider || task.apiProfileName || task.apiModel)
@@ -295,6 +301,7 @@ export default function DetailModal() {
         ...task.category,
         productTitle: categoryProductInput.trim(),
         workflow: categoryWorkflowInput as NonNullable<TaskRecord['category']>['workflow'],
+        marketplaceId: currentHistoryCategory.marketplaceId,
       },
     })
     showToast('分类已保存', 'success')
@@ -311,9 +318,10 @@ export default function DetailModal() {
   }
 
   const handleCopyPrompt = async () => {
-    if (!task.prompt) return
+    const promptToCopy = task.imageEditContext?.userInstruction || task.prompt
+    if (!promptToCopy) return
     try {
-      await copyTextToClipboard(task.prompt)
+      await copyTextToClipboard(promptToCopy)
       showToast('提示词已复制', 'success')
     } catch (err) {
       showToast(getClipboardFailureMessage('复制提示词失败', err), 'error')
@@ -402,15 +410,20 @@ export default function DetailModal() {
   return (
     <div
       data-no-drag-select
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="ios-sheet-root fixed inset-0 z-50"
       onClick={() => setDetailTaskId(null)}
+      role="dialog"
+      aria-modal="true"
+      aria-label="图片详情"
     >
-      <div className="absolute inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-md animate-overlay-in" />
+      <div className="ios-sheet-backdrop absolute inset-0" />
       <div
         ref={modalRef}
-        className="relative bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/50 dark:border-white/[0.08] rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col md:flex-row z-10 ring-1 ring-black/5 dark:ring-white/10 animate-modal-in"
+        className="ios-sheet-panel flex max-h-[90vh] max-w-4xl flex-col overflow-hidden pt-5 md:flex-row"
+        style={mainSheetDrag.panelStyle}
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="ios-sheet-grabber-zone" {...mainSheetDrag.dragHandleProps} aria-hidden="true"><span className="ios-sheet-grabber" /></div>
         <div className="flex h-14 items-center justify-end px-4 md:hidden">
           <button
             onClick={() => setDetailTaskId(null)}
@@ -781,7 +794,7 @@ export default function DetailModal() {
               </div>
             ) : (
               <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap mb-4">
-                {task.prompt || '(无提示词)'}
+                {task.imageEditContext?.userInstruction || task.prompt || '(无提示词)'}
               </p>
             )}
             {showRevisedPrompt && currentRevisedPrompt && (
@@ -816,6 +829,16 @@ export default function DetailModal() {
                       {allInputImageIds.map((imgId) => {
                         const isMaskTarget = imgId === maskTargetId
                         const isStyleReference = imgId === styleReferenceImageId
+                        const editContext = task.imageEditContext
+                        const editRole = editContext
+                          ? imgId === editContext.sourceImageId
+                            ? '原图'
+                            : imgId === editContext.visualGuideImageId
+                              ? '定位图'
+                              : editContext.referenceImageIds.includes(imgId)
+                                ? `参考 ${editContext.referenceImageIds.indexOf(imgId) + 1}`
+                                : ''
+                          : ''
                         const displaySrc = (isMaskTarget && maskPreviewSrc) ? maskPreviewSrc : (imageSrcs[imgId] || '')
                         return (
                           <div key={imgId} className="relative group inline-block">
@@ -841,6 +864,11 @@ export default function DetailModal() {
                               {isStyleReference && !isMaskTarget && (
                                 <span className="absolute left-1 top-1 rounded bg-violet-500/90 px-1.5 py-0.5 text-[8px] leading-none text-white font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
                                   STYLE
+                                </span>
+                              )}
+                              {editRole && (
+                                <span className="absolute left-1 top-1 rounded bg-blue-600/90 px-1.5 py-0.5 text-[8px] font-bold leading-none text-white backdrop-blur-sm">
+                                  {editRole}
                                 </span>
                               )}
                             </div>
@@ -874,7 +902,7 @@ export default function DetailModal() {
                     value={categoryProductInput}
                     onChange={(event) => setCategoryProductInput(event.target.value)}
                     placeholder="未识别商品"
-                    className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
+                    className="ios-field w-full px-2.5 py-2 text-xs text-gray-800 placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
                   />
                 </label>
                 <label>
@@ -882,10 +910,11 @@ export default function DetailModal() {
                   <select
                     value={categoryWorkflowInput}
                     onChange={(event) => setCategoryWorkflowInput(event.target.value)}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-100"
+                    className="ios-field w-full px-2.5 py-2 text-xs text-gray-800 dark:text-gray-100"
                   >
                     <option value="amazon-listing">Listing 图</option>
                     <option value="amazon-aplus">A+ 图</option>
+                    <option value="seedream-edit">图片编辑</option>
                     <option value="gallery">普通生图</option>
                     <option value="agent">Agent</option>
                     <option value="unknown">未知来源</option>
@@ -894,6 +923,8 @@ export default function DetailModal() {
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-gray-500 dark:text-gray-400">
                 <span>{getWorkflowLabel(currentHistoryCategory.workflow)}</span>
+                <span>·</span>
+                <span>{getAmazonMarketplaceLabel(currentHistoryCategory.marketplaceId)}</span>
                 <span>·</span>
                 <span>{getAspectLabel(currentHistoryCategory.aspect)}</span>
                 {currentHistoryCategory.amazonSlot && (
@@ -978,7 +1009,7 @@ export default function DetailModal() {
               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
               </svg>
-              复用配置
+              {currentHistoryCategory.workflow === 'seedream-edit' ? '返回图片编辑' : '复用配置'}
             </button>
             <button
               onClick={handleEdit}
@@ -986,7 +1017,7 @@ export default function DetailModal() {
               className="col-span-2 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
             >
               <EditIcon className="w-4 h-4 flex-shrink-0" />
-              编辑输出
+              在图片编辑中打开
             </button>
             <button
               onClick={handleDelete}
@@ -1014,7 +1045,10 @@ export default function DetailModal() {
 
       {showRawUrlsModal && rawImageUrls.length > 0 && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm sm:p-6"
+          className="ios-sheet-root fixed inset-0 z-[60] sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="原始图片链接"
           onPointerDown={(e) => {
             rawUrlsBackdropPointerDownRef.current = e.target === e.currentTarget
           }}
@@ -1024,7 +1058,8 @@ export default function DetailModal() {
             rawUrlsBackdropPointerDownRef.current = false
           }}
         >
-          <div ref={rawUrlsModalRef} className="flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-[#1c1c1e]" onClick={(e) => e.stopPropagation()}>
+          <div ref={rawUrlsModalRef} className="ios-sheet-panel flex max-h-[90vh] max-w-2xl flex-col overflow-hidden pt-5" style={rawUrlsSheetDrag.panelStyle} onClick={(e) => e.stopPropagation()}>
+            <div className="ios-sheet-grabber-zone" {...rawUrlsSheetDrag.dragHandleProps} aria-hidden="true"><span className="ios-sheet-grabber" /></div>
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-white/[0.08] shrink-0">
               <h3 className="text-base font-semibold text-gray-900 dark:text-white">原始图片链接 ({rawImageUrls.length})</h3>
               <div className="flex items-center gap-2">
@@ -1090,7 +1125,10 @@ export default function DetailModal() {
 
       {showRawResponseModal && task?.rawResponsePayload && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm sm:p-6"
+          className="ios-sheet-root fixed inset-0 z-[60] sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="原始响应数据"
           onPointerDown={(e) => {
             rawResponseBackdropPointerDownRef.current = e.target === e.currentTarget
           }}
@@ -1102,12 +1140,14 @@ export default function DetailModal() {
         >
           <div
             ref={rawResponseModalRef}
-            className="flex w-full max-w-3xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-[#1c1c1e]"
+            className="ios-sheet-panel flex max-h-[90vh] max-w-3xl flex-col overflow-hidden pt-5"
+            style={rawResponseSheetDrag.panelStyle}
             onPointerDown={(e) => {
               if (!(e.target as Element).closest('[data-selectable-text]')) clearTextSelection()
             }}
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="ios-sheet-grabber-zone" {...rawResponseSheetDrag.dragHandleProps} aria-hidden="true"><span className="ios-sheet-grabber" /></div>
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-white/[0.08] shrink-0">
               <h3 className="text-base font-semibold text-gray-900 dark:text-white">原始响应数据</h3>
               <div className="flex items-center gap-2">

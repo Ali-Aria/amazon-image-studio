@@ -2,7 +2,7 @@
   "name": "amazon-image-studio",
   "description": "Instant-retail product image planning, generation, QA, and export workspace.",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { addImageFromFile, ensureImageCached, submitTask, useStore } from '../store'
-import { getAmazonPlannerProfile, isOfficialDeepSeekPlannerProfile, validateApiProfile } from '../lib/apiProfiles'
+import { getAmazonPlannerProfile, getHomeApiProfile, isAliyunQwenImageProfile, isOfficialDeepSeekPlannerProfile, validateApiProfile } from '../lib/apiProfiles'
+import { getInputImageLimitForSettings } from '../lib/paramCompatibility'
 import {
   DEFAULT_AMAZON_PROMPT_DRAFT,
   type AmazonPromptDraft,
@@ -38,6 +39,14 @@ import {
 } from '../lib/listingPlanner'
 import { callAmazonPlannerApi, type PlannerApiResult } from '../lib/listingPlannerApi'
 import { deleteAmazonPlannerSession, getAllAmazonPlannerSessions, putAmazonPlannerSession } from '../lib/db'
+import {
+  AMAZON_MARKETPLACES,
+  DEFAULT_AMAZON_MARKETPLACE_ID,
+  getAmazonMarketplace,
+  getAmazonMarketplaceLabel,
+  normalizeAmazonMarketplaceId,
+  type AmazonMarketplaceId,
+} from '../lib/amazonMarketplaces'
 import { prepareReferenceImagePayload, type PlannerReferenceImagePayload } from '../lib/referenceImagePayload'
 import {
   DEFAULT_STYLE_PRESET_ID,
@@ -60,12 +69,11 @@ import type { AmazonPlannerSession, CustomStyleReference, StyleReferenceEditStat
 import StyleReferenceEditorModal from './StyleReferenceEditorModal'
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, CopyIcon, EditIcon, EyeIcon, HistoryIcon, PhotoIcon, PlusIcon, RefreshIcon, TrashIcon } from './icons'
 
-const FIELD_CLASS = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500'
-const LABEL_CLASS = 'mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400'
+const FIELD_CLASS = 'ios-field w-full px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500'
+const LABEL_CLASS = 'mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.07em] text-gray-500 dark:text-gray-400'
 const PLAN_LIST_CLASS = 'grid max-h-[420px] gap-2 overflow-y-auto overscroll-contain pr-1 custom-scrollbar sm:max-h-[480px]'
-const GUIDE_HINT_CLASS = 'mb-3 rounded-lg border border-blue-200 bg-white/85 px-3 py-2 text-xs font-medium leading-relaxed text-blue-800 shadow-sm dark:border-blue-400/25 dark:bg-blue-400/10 dark:text-blue-100'
+const GUIDE_HINT_CLASS = 'mb-3 rounded-[var(--ios-radius-md)] bg-[hsl(var(--ios-blue-tint))] px-3 py-2 text-xs font-medium leading-relaxed text-[hsl(var(--primary))]'
 const DEEPSEEK_PLANNER_NOTICE = '当前 AI 策划配置为 DeepSeek 官方接口。DeepSeek 策划阶段不会读取参考图，系统会仅用 Listing 文本和你填写的商品信息生成策划；参考图仍会在正式生图时随生图请求发送。请把产品颜色、形状、结构、配件、Logo、套装数量等关键特征写进 Listing 或商品信息中。'
-const API_MAX_IMAGES = 16
 const STYLE_PREVIEW_WIDTH = 420
 const STYLE_PREVIEW_HEIGHT = 500
 const STYLE_PREVIEW_OFFSET = 16
@@ -124,6 +132,10 @@ function getPlannerSessionTitle(draft: AmazonPromptDraft, listingText: string) {
 function getSessionListingImageCount(session: AmazonPlannerSession) {
   if (session.listingImageCount != null) return normalizeListingImageCount(session.listingImageCount)
   return normalizeListingImageCount(session.imagePlans.length || DEFAULT_LISTING_IMAGE_COUNT)
+}
+
+function getSessionMarketplaceId(session: AmazonPlannerSession): AmazonMarketplaceId {
+  return normalizeAmazonMarketplaceId(session.marketplaceId)
 }
 
 function getSessionAPlusModuleSpecsByType(session: AmazonPlannerSession): APlusModuleSpecsByType {
@@ -193,19 +205,19 @@ function sortPlannerSessions(sessions: AmazonPlannerSession[]) {
 }
 
 function getActionStepClass(status: WorkflowStepStatus) {
-  if (status === 'done') return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200'
-  if (status === 'current') return 'border-blue-200 bg-blue-50 text-blue-800 ring-1 ring-blue-500/10 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-200'
-  return 'border-gray-200 bg-white text-gray-500 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-400'
+  if (status === 'done') return 'bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-200'
+  if (status === 'current') return 'bg-[hsl(var(--ios-blue-tint))] text-[hsl(var(--primary))] ring-2 ring-[hsl(var(--primary)/0.16)]'
+  return 'bg-[hsl(var(--muted))] text-gray-500 dark:text-gray-400'
 }
 
 function getGuidePanelClass(isActive: boolean, tone: GuidePanelTone = 'white') {
-  if (isActive) return 'border-blue-300 bg-blue-50/60 ring-2 ring-blue-500/15 dark:border-blue-400/60 dark:bg-blue-500/10'
-  if (tone === 'muted') return 'border-gray-200 bg-gray-50 dark:border-white/[0.08] dark:bg-gray-950'
-  return 'border-gray-200 bg-white dark:border-white/[0.08] dark:bg-gray-950'
+  if (isActive) return 'bg-[hsl(var(--ios-blue-tint))] ring-2 ring-[hsl(var(--primary)/0.2)]'
+  if (tone === 'muted') return 'bg-[hsl(var(--muted)/0.72)]'
+  return 'bg-[hsl(var(--surface)/0.94)]'
 }
 
 function getGuideFocusClass(isActive: boolean) {
-  return isActive ? 'ring-2 ring-blue-500/20 dark:ring-blue-400/20' : ''
+  return isActive ? 'ring-2 ring-[hsl(var(--primary)/0.2)]' : ''
 }
 
 function getPlannerActionKey(mode: AmazonPlannerMode, planIndex: number | null, slot: string | undefined | null) {
@@ -232,7 +244,7 @@ function getPlannerFailureDetail(err: unknown): string {
     hints.push('该接口可能不支持当前 JSON 输出参数；Chat Completions 需要支持 response_format=json_object。')
   }
   if (/failed to fetch|network|cors|load failed|连接|网络|跨域/.test(lower)) {
-    hints.push('浏览器未能连接到策划接口；请检查网络、跨域设置，或开启应用里的 API 代理。')
+    hints.push('浏览器未能连接到策划接口；请检查网络、跨域设置，或确认部署端 API 代理配置。')
   }
 
   return [message, ...hints].join('\n\n')
@@ -277,10 +289,16 @@ function getAmazonAPlusComplianceChecks(
   draft: AmazonPromptDraft,
   plan: AmazonAPlusPlan | null,
   aPlusType: APlusContentType,
+  marketplaceId: AmazonMarketplaceId,
   referenceImageCount: number,
   hasStyleReference: boolean,
 ): Array<{ label: string; status: ComplianceStatus; detail: string }> {
   return [
+    {
+      label: '目标站点',
+      status: 'ready',
+      detail: getAmazonMarketplaceLabel(marketplaceId),
+    },
     {
       label: '商品名称',
       status: draft.productTitle.trim() ? 'ready' : 'missing',
@@ -312,11 +330,17 @@ function getAmazonAPlusComplianceChecks(
 function getAmazonListingPlannerChecks(
   draft: AmazonPromptDraft,
   size: string,
+  marketplaceId: AmazonMarketplaceId,
   referenceImageCount: number,
   hasStyleReference: boolean,
   styleReferenceRequired: boolean,
 ): Array<{ label: string; status: ComplianceStatus; detail: string }> {
   return [
+    {
+      label: '目标站点',
+      status: 'ready',
+      detail: getAmazonMarketplaceLabel(marketplaceId),
+    },
     {
       label: '商品名称',
       status: draft.productTitle.trim() ? 'ready' : 'missing',
@@ -346,6 +370,9 @@ export default function AmazonPlanner() {
   const prompt = useStore((s) => s.prompt)
   const inputImages = useStore((s) => s.inputImages)
   const settings = useStore((s) => s.settings)
+  const homeProfile = getHomeApiProfile(settings)
+  const isAliyunQwenProvider = isAliyunQwenImageProfile(homeProfile)
+  const inputImageLimit = getInputImageLimitForSettings(settings)
   const setSettings = useStore((s) => s.setSettings)
   const setPrompt = useStore((s) => s.setPrompt)
   const setParams = useStore((s) => s.setParams)
@@ -364,6 +391,7 @@ export default function AmazonPlanner() {
   const [resolution, setResolution] = useState<'2k' | '4k'>('2k')
   const [listingImageCount, setListingImageCount] = useState(DEFAULT_LISTING_IMAGE_COUNT)
   const [plannerMode, setPlannerMode] = useState<AmazonPlannerMode>('listing')
+  const [marketplaceId, setMarketplaceId] = useState<AmazonMarketplaceId>(DEFAULT_AMAZON_MARKETPLACE_ID)
   const [aPlusType, setAPlusType] = useState<APlusContentType>('standard-large')
   const [aPlusModuleSpecsByType, setAPlusModuleSpecsByType] = useState<APlusModuleSpecsByType>({})
   const [listingText, setListingText] = useState('')
@@ -400,6 +428,7 @@ export default function AmazonPlanner() {
   const [actionProgress, setActionProgress] = useState<PlannerActionProgressMap>({})
   const [mobileActionDock, setMobileActionDock] = useState<MobileActionDock>(null)
   const resolutionTier = resolution === '4k' ? '4K' : '2K'
+  const marketplace = useMemo(() => getAmazonMarketplace(marketplaceId), [marketplaceId])
   const listingSlotRange = formatAmazonListingSlotRange(listingImageCount)
   const aPlusSpecs = useMemo(
     () => normalizeAPlusModuleSpecs(aPlusType, aPlusModuleSpecsByType[aPlusType]),
@@ -428,13 +457,14 @@ export default function AmazonPlanner() {
   const hasStyleReference = Boolean(selectedStyleImage?.imageId)
   const usesStyleReferenceForActivePlan = styleReferenceRequired && hasStyleReference
   const effectiveReferenceCount = inputImages.length + (usesStyleReferenceForActivePlan && selectedStyleImage?.imageId && !inputImages.some((image) => image.id === selectedStyleImage.imageId) ? 1 : 0)
-  const styleReferenceLimitExceeded = usesStyleReferenceForActivePlan && effectiveReferenceCount > API_MAX_IMAGES
+  const styleReferenceLimitExceeded = usesStyleReferenceForActivePlan && effectiveReferenceCount > inputImageLimit
   const activePrompt = plannerMode === 'aplus'
     ? selectedAPlusPlan ? buildAmazonAPlusPlanPrompt({
       ...selectedAPlusPlan,
       seriesStyleGuide: activeSeriesStyleGuide,
       styleReferenceAttached: usesStyleReferenceForActivePlan,
       styleDensityMode,
+      marketplaceId,
       selectedVisualStyle: usesStyleReferenceForActivePlan ? selectedVisualStyle : null,
     }) : ''
     : selectedPlan ? buildAmazonPlanPrompt({
@@ -442,6 +472,7 @@ export default function AmazonPlanner() {
       seriesStyleGuide: isMainListingPlan ? null : activeSeriesStyleGuide,
       styleReferenceAttached: usesStyleReferenceForActivePlan,
       styleDensityMode,
+      marketplaceId,
       selectedVisualStyle: usesStyleReferenceForActivePlan ? selectedVisualStyle : null,
     }) : ''
   const activePlanMarkdown = plannerMode === 'aplus' ? selectedAPlusPlan?.planMarkdown ?? '' : selectedPlan?.planMarkdown ?? ''
@@ -449,7 +480,7 @@ export default function AmazonPlanner() {
     ? [
         activePlanMarkdown,
         '',
-        '英文生图提示词 Prompt',
+        `英文生图提示词 Prompt / ${marketplace.copyLanguage}可见文案`,
         activePrompt,
       ].join('\n')
     : activePrompt
@@ -555,9 +586,9 @@ export default function AmazonPlanner() {
   const planListGuideActive = guideState.target === 'plan-list'
   const actionBarGuideActive = guideState.target === 'action-bar'
   const checks = plannerMode === 'aplus'
-    ? getAmazonAPlusComplianceChecks(draft, selectedAPlusPlan, aPlusType, inputImages.length, hasStyleReference)
-    : getAmazonListingPlannerChecks(draft, targetSize, inputImages.length, hasStyleReference, styleReferenceRequired)
-  const atImageLimit = inputImages.length >= API_MAX_IMAGES
+    ? getAmazonAPlusComplianceChecks(draft, selectedAPlusPlan, aPlusType, marketplaceId, inputImages.length, hasStyleReference)
+    : getAmazonListingPlannerChecks(draft, targetSize, marketplaceId, inputImages.length, hasStyleReference, styleReferenceRequired)
+  const atImageLimit = inputImages.length >= inputImageLimit
 
   useEffect(() => {
     let cancelled = false
@@ -631,6 +662,7 @@ export default function AmazonPlanner() {
       id: targetSessionId ?? createPlannerSessionId(),
       title: overrides.title ?? getPlannerSessionTitle(snapshotDraft, snapshotListingText),
       mode: overrides.mode ?? plannerMode,
+      marketplaceId: overrides.marketplaceId ?? marketplaceId,
       aPlusType: overrides.aPlusType ?? aPlusType,
       resolution: overrides.resolution ?? resolution,
       listingImageCount: overrides.listingImageCount ?? listingImageCount,
@@ -700,7 +732,7 @@ export default function AmazonPlanner() {
       return false
     }
     if (shouldRequireStyle && styleReferenceLimitExceeded) {
-      showToast(`已选择隐藏风格参考板，实际参考图数量不能超过 ${API_MAX_IMAGES} 张；请删除一张产品参考图后再提交。`, 'error')
+      showToast(`已选择隐藏风格参考板，实际参考图数量不能超过 ${inputImageLimit} 张；请删除一张产品参考图后再提交。`, 'error')
       return false
     }
 
@@ -713,6 +745,7 @@ export default function AmazonPlanner() {
         workflow: plannerMode === 'aplus' ? 'amazon-aplus' : 'amazon-listing',
         amazonSlot: plannerMode === 'aplus' ? selectedAPlusPlan?.slot : selectedPlan?.slot,
         ...(plannerMode === 'aplus' ? { aPlusType } : {}),
+        marketplaceId,
         ...(usesStyleReferenceForActivePlan && selectedStyleImage?.imageId ? { styleReferenceImageId: selectedStyleImage.imageId } : {}),
       },
     })
@@ -1019,6 +1052,7 @@ export default function AmazonPlanner() {
   }
 
   const applyPlannerResult = (result: PlannerApiResult, sourceLabel: string) => {
+    const resultMarketplaceId = normalizeAmazonMarketplaceId(result.marketplaceId)
     const firstPlan = result.plans[0]
     const nextDraft = {
       ...draft,
@@ -1037,6 +1071,7 @@ export default function AmazonPlanner() {
     const nextSelectedAPlusPlanIndex = result.mode === 'aplus' && result.aPlusPlans.length ? 0 : null
 
     setDraft(nextDraft)
+    setMarketplaceId(resultMarketplaceId)
     if (result.mode === 'aplus') {
       setAPlusPlans(nextAPlusPlans)
       setImagePlans([])
@@ -1058,6 +1093,7 @@ export default function AmazonPlanner() {
     void savePlannerSession({
       id: createPlannerSessionId(),
       mode: result.mode,
+      marketplaceId: resultMarketplaceId,
       listingImageCount,
       aPlusModuleSpecs: getAPlusModuleSpecsForSession(aPlusModuleSpecsByType),
       draft: toSessionDraft(nextDraft),
@@ -1124,6 +1160,7 @@ export default function AmazonPlanner() {
     setIsPlanning(true)
     setPlannerError('')
     try {
+      const currentMarketplaceId = marketplaceId
       const referencePayload = await prepareReferencePayloadForRequest(inputImages.map((image) => image.dataUrl), controller.signal)
       const result = await callAmazonPlannerApi({
         listingText,
@@ -1131,6 +1168,7 @@ export default function AmazonPlanner() {
         profile: plannerProfile,
         referenceImageDataUrls: referencePayload.dataUrls,
         mode: plannerMode,
+        marketplaceId: currentMarketplaceId,
         listingImageCount,
         aPlusType,
         aPlusModuleSpecs: aPlusSpecs,
@@ -1218,6 +1256,28 @@ export default function AmazonPlanner() {
     }
   }
 
+  const changeMarketplaceId = (value: string) => {
+    const nextMarketplaceId = normalizeAmazonMarketplaceId(value)
+    if (nextMarketplaceId === marketplaceId) return
+    const clearedStyleGuides = { listing: '', aplus: '' }
+    setMarketplaceId(nextMarketplaceId)
+    setImagePlans([])
+    setAPlusPlans([])
+    setSeriesStyleGuides(clearedStyleGuides)
+    setSelectedPlanIndex(null)
+    setSelectedAPlusPlanIndex(null)
+    setPlannerError('')
+    setActionProgress({})
+    updateCurrentPlannerSession({
+      marketplaceId: nextMarketplaceId,
+      seriesStyleGuides: clearedStyleGuides,
+      imagePlans: [],
+      aPlusPlans: [],
+      selectedPlanIndex: null,
+      selectedAPlusPlanIndex: null,
+    })
+  }
+
   const changeListingImageCount = (value: string) => {
     const nextCount = normalizeListingImageCount(value)
     setListingImageCount(nextCount)
@@ -1261,6 +1321,7 @@ export default function AmazonPlanner() {
 
   const clearListingPlan = () => {
     setListingText('')
+    setMarketplaceId(DEFAULT_AMAZON_MARKETPLACE_ID)
     setListingImageCount(DEFAULT_LISTING_IMAGE_COUNT)
     setAPlusModuleSpecsByType({})
     setImagePlans([])
@@ -1387,7 +1448,9 @@ export default function AmazonPlanner() {
     }
 
     const restoredAPlusModuleSpecsByType = getSessionAPlusModuleSpecsByType(session)
+    const restoredMarketplaceId = getSessionMarketplaceId(session)
     setPlannerMode(session.mode)
+    setMarketplaceId(restoredMarketplaceId)
     setAPlusType(session.aPlusType)
     setResolution(session.resolution)
     setListingImageCount(getSessionListingImageCount(session))
@@ -1411,6 +1474,7 @@ export default function AmazonPlanner() {
     setActionProgress({})
     const restoredSession = {
       ...session,
+      marketplaceId: restoredMarketplaceId,
       listingImageCount: getSessionListingImageCount(session),
       aPlusModuleSpecs: getAPlusModuleSpecsForSession(restoredAPlusModuleSpecsByType),
       selectedStylePresetId: restoredStyleReference ? restoredStyleReference.presetId : nextStylePresetId,
@@ -1456,12 +1520,12 @@ export default function AmazonPlanner() {
     }
 
     const currentCount = useStore.getState().inputImages.length
-    if (currentCount >= API_MAX_IMAGES) {
-      showToast(`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`, 'error')
+    if (currentCount >= inputImageLimit) {
+      showToast(`参考图数量已达上限（${inputImageLimit} 张），无法继续添加`, 'error')
       return
     }
 
-    const remaining = API_MAX_IMAGES - currentCount
+    const remaining = inputImageLimit - currentCount
     const toAdd = accepted.slice(0, remaining)
     const discarded = accepted.length - toAdd.length
 
@@ -1477,8 +1541,8 @@ export default function AmazonPlanner() {
       if (discarded > 0) {
         showToast(
           added > 0
-            ? `已上传 ${added} 张参考图，已达上限 ${API_MAX_IMAGES} 张，${discarded} 张被丢弃`
-            : `已达上限 ${API_MAX_IMAGES} 张，${discarded} 张图片被丢弃`,
+            ? `已上传 ${added} 张参考图，已达上限 ${inputImageLimit} 张，${discarded} 张被丢弃`
+            : `已达上限 ${inputImageLimit} 张，${discarded} 张图片被丢弃`,
           added > 0 ? 'success' : 'error',
         )
         return
@@ -1506,19 +1570,19 @@ export default function AmazonPlanner() {
         onSave={(state) => void saveStyleEditor(state)}
       />
     )}
-    <section data-no-drag-select className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-white/[0.08] dark:bg-gray-900">
-      <div className="border-b border-gray-200 px-4 py-4 dark:border-white/[0.08] sm:px-5">
+    <section data-no-drag-select className="ios-surface mt-6 overflow-hidden">
+      <div className="border-b border-[hsl(var(--separator))] px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-lg font-bold tracking-tight text-gray-900 dark:text-gray-50">亚马逊图片工作台</h2>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-              <span>OpenAI gpt-image-2</span>
+              <span>{isAliyunQwenProvider ? 'Qwen-Image 3.0 Pro' : 'OpenAI gpt-image-2'}</span>
               <span className="h-1 w-1 rounded-full bg-gray-300 dark:bg-gray-600" />
               <span>2K / 4K</span>
               <span className="h-1 w-1 rounded-full bg-gray-300 dark:bg-gray-600" />
               <span>主图、附图与 A+ 策划</span>
             </div>
-            <div className="mt-3 inline-flex rounded-xl border border-gray-200 bg-gray-100 p-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
+            <div className="ios-segmented mt-3">
               {([
                 ['listing', 'Listing 图'],
                 ['aplus', 'A+ 图'],
@@ -1527,7 +1591,8 @@ export default function AmazonPlanner() {
                   key={mode}
                   type="button"
                   onClick={() => changePlannerMode(mode)}
-                  className={`h-8 rounded-lg px-3 text-sm font-medium transition ${plannerMode === mode ? 'bg-white text-gray-900 shadow-sm dark:bg-white/10 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+                  data-active={plannerMode === mode}
+                  className={`ios-segment h-8 px-3 text-sm font-medium ${plannerMode === mode ? 'text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
                 >
                   {label}
                 </button>
@@ -1535,13 +1600,25 @@ export default function AmazonPlanner() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex h-10 items-center gap-2 rounded-[var(--ios-radius-md)] bg-[hsl(var(--muted))] px-3 text-sm font-medium text-gray-600 dark:text-gray-300">
+              <span className="text-xs text-gray-400 dark:text-gray-500">目标站点</span>
+              <select
+                value={marketplaceId}
+                onChange={(event) => changeMarketplaceId(event.target.value)}
+                className="h-7 bg-transparent px-2 text-sm font-semibold text-gray-900 dark:text-gray-100"
+              >
+                {AMAZON_MARKETPLACES.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+            </label>
             {plannerMode === 'listing' && (
-              <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-600 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-300">
+              <label className="inline-flex h-10 items-center gap-2 rounded-[var(--ios-radius-md)] bg-[hsl(var(--muted))] px-3 text-sm font-medium text-gray-600 dark:text-gray-300">
                 <span className="text-xs text-gray-400 dark:text-gray-500">图片数</span>
                 <select
                   value={listingImageCount}
                   onChange={(event) => changeListingImageCount(event.target.value)}
-                  className="h-7 rounded-md border border-gray-200 bg-gray-50 px-2 text-sm font-semibold text-gray-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-gray-100"
+                  className="h-7 bg-transparent px-2 text-sm font-semibold text-gray-900 dark:text-gray-100"
                 >
                   {LISTING_IMAGE_COUNT_OPTIONS.map((count) => (
                     <option key={count} value={count}>{count} 张</option>
@@ -1549,13 +1626,14 @@ export default function AmazonPlanner() {
                 </select>
               </label>
             )}
-            <div className="inline-flex rounded-xl border border-gray-200 bg-gray-100 p-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
+            <div className="ios-segmented">
               {(['2k', '4k'] as const).map((item) => (
                 <button
                   key={item}
                   type="button"
                   onClick={() => setResolution(item)}
-                  className={`h-8 min-w-14 rounded-lg px-3 text-sm font-medium transition ${resolution === item ? 'bg-white text-gray-900 shadow-sm dark:bg-white/10 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+                  data-active={resolution === item}
+                  className={`ios-segment h-8 min-w-14 px-3 text-sm font-medium ${resolution === item ? 'text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
                 >
                   {item.toUpperCase()}
                 </button>
@@ -1564,7 +1642,7 @@ export default function AmazonPlanner() {
             <button
               type="button"
               onClick={() => setShowPlannerHistory((value) => !value)}
-              className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition ${showPlannerHistory ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-white/[0.08] dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-white/[0.06]'}`}
+              className={`ios-button inline-flex h-10 items-center gap-2 px-3 text-sm font-medium ${showPlannerHistory ? 'ios-button-tinted' : 'bg-[hsl(var(--muted))] text-gray-700 dark:text-gray-200'}`}
             >
               <HistoryIcon className="h-4 w-4" />
               策划历史
@@ -1577,7 +1655,7 @@ export default function AmazonPlanner() {
           </div>
         </div>
         {showPlannerHistory && (
-          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/[0.08] dark:bg-gray-950">
+          <div className="ios-material mt-4 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">策划历史</div>
@@ -1596,12 +1674,14 @@ export default function AmazonPlanner() {
             {plannerSessions.length > 0 ? (
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {plannerSessions.map((session) => (
-                  <div key={session.id} className="rounded-lg border border-gray-200 bg-white p-3 dark:border-white/[0.08] dark:bg-gray-900">
+                  <div key={session.id} className="ios-card p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{session.title}</div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
                           <span>{session.mode === 'aplus' ? 'A+ 图' : 'Listing 图'}</span>
+                          <span>·</span>
+                          <span>{getAmazonMarketplaceLabel(getSessionMarketplaceId(session))}</span>
                           <span>·</span>
                           <span>{session.mode === 'aplus' ? getAPlusContentTypeLabel(session.aPlusType) : `${session.imagePlans.length} 张`}</span>
                           <span>·</span>
@@ -1648,8 +1728,8 @@ export default function AmazonPlanner() {
       </div>
 
       <div className="grid gap-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-        <div className="border-b border-gray-200 p-4 dark:border-white/[0.08] sm:p-5 lg:border-b-0 lg:border-r">
-          <div className={`rounded-xl border p-3 shadow-sm transition ${getGuidePanelClass(plannerGuideActive)}`}>
+        <div className="border-b border-[hsl(var(--separator))] p-4 sm:p-5 lg:border-b-0 lg:border-r lg:border-[hsl(var(--separator))]">
+          <div className={`ios-group p-4 ${getGuidePanelClass(plannerGuideActive)}`}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">
@@ -1657,8 +1737,8 @@ export default function AmazonPlanner() {
                 </div>
                 <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                   {plannerMode === 'aplus'
-                    ? '粘贴标题、五点描述或品牌说明，生成普通A+ / 标准A+ / 高级A+ / 手机A+模块编排和英文提示词。'
-                    : `粘贴标题、五点描述或产品说明，生成 ${listingSlotRange} 的逐张方案和英文提示词。`}
+                    ? `面向${marketplace.label}，生成普通A+ / 标准A+ / 高级A+ / 手机A+模块编排、英文生图提示词和${marketplace.copyLanguage}文案。`
+                    : `面向${marketplace.label}，生成 ${listingSlotRange} 的逐张方案、英文生图提示词和${marketplace.copyLanguage}图片文案。`}
                 </div>
               </div>
               <div className="rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
@@ -1671,7 +1751,7 @@ export default function AmazonPlanner() {
               </div>
             )}
             {plannerMode === 'aplus' && (
-              <div className="mt-3 inline-flex rounded-xl border border-gray-200 bg-gray-100 p-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
+              <div className="ios-segmented mt-3">
                 {([
                   ['standard-large', '普通A+'],
                   ['standard', '标准A+'],
@@ -1682,7 +1762,8 @@ export default function AmazonPlanner() {
                     key={type}
                     type="button"
                     onClick={() => changeAPlusType(type)}
-                    className={`h-8 rounded-lg px-3 text-sm font-medium transition ${aPlusType === type ? 'bg-white text-gray-900 shadow-sm dark:bg-white/10 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
+                    data-active={aPlusType === type}
+                    className={`ios-segment h-8 px-3 text-sm font-medium ${aPlusType === type ? 'text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}
                   >
                     {label}
                   </button>
@@ -1701,7 +1782,7 @@ export default function AmazonPlanner() {
               />
             </label>
             <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <div className={`rounded-xl border px-3 py-2 transition ${guideState.target === 'planner-api' ? 'border-blue-300 bg-blue-50 text-blue-800 ring-2 ring-blue-500/15 dark:border-blue-400/60 dark:bg-blue-500/10 dark:text-blue-100' : plannerProfile && !plannerProfileValidation ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200'}`}>
+              <div className={`rounded-[var(--ios-radius-md)] px-3 py-2 ${guideState.target === 'planner-api' ? 'bg-[hsl(var(--ios-blue-tint))] text-[hsl(var(--primary))] ring-2 ring-[hsl(var(--primary)/0.18)]' : plannerProfile && !plannerProfileValidation ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-200' : 'bg-amber-50 text-amber-800 dark:bg-amber-400/10 dark:text-amber-200'}`}>
                 <div className="text-xs font-semibold">AI 策划配置</div>
                 <div className="mt-1 text-xs leading-relaxed">
                   {plannerProfile ? `${plannerProfile.name} · ${plannerProfile.model} · ${plannerApiLabel}` : '未配置，请在设置中选择一个 Chat Completions 策划配置'}
@@ -1713,7 +1794,7 @@ export default function AmazonPlanner() {
                   type="button"
                   onClick={createAiPlan}
                   disabled={isPlanning || Boolean(plannerProfileValidation)}
-                  className={`inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold text-white transition ${isPlanning ? 'cursor-wait bg-gray-400' : plannerProfileValidation ? 'cursor-not-allowed bg-gray-300 dark:bg-white/[0.12]' : 'bg-blue-600 hover:bg-blue-500'} ${guideState.target === 'planner-action' ? 'ring-2 ring-blue-500/25 ring-offset-2 ring-offset-white dark:ring-offset-gray-950' : ''}`}
+                  className={`ios-button h-10 px-4 text-sm font-semibold ${isPlanning ? 'cursor-wait bg-gray-400 text-white' : plannerProfileValidation ? 'cursor-not-allowed bg-gray-300 text-white dark:bg-white/[0.12]' : 'ios-button-filled'} ${guideState.target === 'planner-action' ? 'ring-2 ring-[hsl(var(--primary)/0.25)] ring-offset-2 ring-offset-white dark:ring-offset-gray-950' : ''}`}
                 >
                   {isPlanning ? '策划中...' : plannerMode === 'aplus' ? 'AI策划A+' : 'AI策划'}
                 </button>
@@ -1739,13 +1820,13 @@ export default function AmazonPlanner() {
                 <button
                   type="button"
                   onClick={() => setShowSettings(true, 'api')}
-                  className="inline-flex h-10 items-center rounded-xl px-3 text-sm font-medium text-blue-600 transition hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-400/10"
+                  className="ios-button ios-button-plain h-10 px-3 text-sm font-medium"
                 >
                   设置
                 </button>
               </div>
             </div>
-            <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
+            <div className="mt-3 rounded-[var(--ios-radius-md)] bg-[hsl(var(--ios-blue-tint))] px-3 py-2 text-xs leading-relaxed text-[hsl(var(--primary))]">
               AI策划使用设置中的策划配置，生图配置保持不变。
             </div>
             {plannerUsesOfficialDeepSeek && (
@@ -1770,13 +1851,13 @@ export default function AmazonPlanner() {
             )}
           </div>
 
-          <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/[0.08] dark:bg-gray-950">
+          <div className="ios-group mt-5 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">参考图</div>
                 <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                   {inputImages.length > 0
-                    ? `${inputImages.length}/${API_MAX_IMAGES} 张产品参考图${usesStyleReferenceForActivePlan ? `；正式生成时另附 1 张隐藏风格参考图（实际 ${effectiveReferenceCount}/${API_MAX_IMAGES}）` : '，将随生成请求一起发送'}`
+                    ? `${inputImages.length}/${inputImageLimit} 张产品参考图${usesStyleReferenceForActivePlan ? `；正式生成时另附 1 张隐藏风格参考图（实际 ${effectiveReferenceCount}/${inputImageLimit}）` : '，将随生成请求一起发送'}`
                     : usesStyleReferenceForActivePlan
                       ? `未上传产品参考图；正式生成时会附 1 张隐藏风格参考图`
                       : '建议上传产品实拍、包装或结构参考图'}
@@ -1787,7 +1868,7 @@ export default function AmazonPlanner() {
                   type="button"
                   onClick={() => !atImageLimit && fileInputRef.current?.click()}
                   disabled={atImageLimit}
-                  className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition ${atImageLimit ? 'cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-white/[0.04] dark:text-gray-500' : 'bg-white text-gray-700 shadow-sm hover:bg-gray-100 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-white/[0.06]'}`}
+                  className={`ios-button h-9 gap-2 px-3 text-sm font-medium ${atImageLimit ? 'cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-white/[0.04] dark:text-gray-500' : 'bg-[hsl(var(--muted))] text-gray-700 dark:text-gray-200'}`}
                 >
                   <PlusIcon className="h-4 w-4" />
                   上传参考图
@@ -1822,7 +1903,6 @@ export default function AmazonPlanner() {
                 {isPreparingReferencePayload ? '正在压缩参考图...' : referencePayloadNotice}
               </div>
             )}
-
             {inputImages.length > 0 ? (
               <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-2 sm:grid-cols-[repeat(auto-fill,72px)]">
                 {inputImages.map((image, index) => (
@@ -1852,7 +1932,7 @@ export default function AmazonPlanner() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="mt-3 flex min-h-[88px] w-full flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white text-center transition hover:border-blue-300 hover:bg-blue-50/40 dark:border-white/[0.12] dark:bg-gray-900 dark:hover:border-blue-400/50 dark:hover:bg-blue-400/10"
+                className="mt-3 flex min-h-[96px] w-full flex-col items-center justify-center rounded-[var(--ios-radius-md)] bg-[hsl(var(--muted)/0.72)] text-center transition-colors hover:bg-[hsl(var(--ios-blue-tint))]"
               >
                 <PhotoIcon className="h-5 w-5 text-gray-400" />
                 <span className="mt-2 text-sm font-medium text-gray-700 dark:text-gray-200">上传产品参考图</span>
@@ -1862,7 +1942,7 @@ export default function AmazonPlanner() {
 
             {atImageLimit && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
-                参考图数量已达上限（{API_MAX_IMAGES} 张），请删除不需要的图片后再上传。
+                参考图数量已达上限（{inputImageLimit} 张），请删除不需要的图片后再上传。
               </div>
             )}
 
@@ -1870,97 +1950,76 @@ export default function AmazonPlanner() {
             <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileUpload} />
           </div>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <label>
-              <span className={LABEL_CLASS}>商品标题</span>
-              <input
-                value={draft.productTitle}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'productTitle', event.target.value))}
-                className={FIELD_CLASS}
-                placeholder="例：Stainless Steel Insulated Travel Mug"
-              />
-            </label>
-            <label>
-              <span className={LABEL_CLASS}>类目</span>
-              <input
-                value={draft.category}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'category', event.target.value))}
-                className={FIELD_CLASS}
-                placeholder="例：Kitchen / Sports / Home"
-              />
-            </label>
-            <label>
-              <span className={LABEL_CLASS}>品牌 / 型号</span>
-              <input
-                value={draft.brand}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'brand', event.target.value))}
-                className={FIELD_CLASS}
-                placeholder="只填商品真实品牌或型号"
-              />
-            </label>
-            <label>
-              <span className={LABEL_CLASS}>颜色</span>
-              <input
-                value={draft.color}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'color', event.target.value))}
-                className={FIELD_CLASS}
-                placeholder="例：matte black"
-              />
-            </label>
-            <label>
-              <span className={LABEL_CLASS}>材质 / 表面工艺</span>
-              <input
-                value={draft.material}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'material', event.target.value))}
-                className={FIELD_CLASS}
-                placeholder="例：304 stainless steel, silicone lid"
-              />
-            </label>
-            <label>
-              <span className={LABEL_CLASS}>目标人群</span>
-              <input
-                value={draft.audience}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'audience', event.target.value))}
-                className={FIELD_CLASS}
-                placeholder="例：commuters, office workers"
-              />
-            </label>
-            <label className="md:col-span-2">
-              <span className={LABEL_CLASS}>卖点</span>
-              <textarea
-                value={draft.sellingPoints}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'sellingPoints', event.target.value))}
-                className={`${FIELD_CLASS} min-h-[86px] resize-y`}
-                placeholder="一行一个卖点，或用分号分隔"
-              />
-            </label>
-            <label>
-              <span className={LABEL_CLASS}>包装清单</span>
-              <textarea
-                value={draft.packageIncludes}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'packageIncludes', event.target.value))}
-                className={`${FIELD_CLASS} min-h-[76px] resize-y`}
-                placeholder="例：1 mug, 1 lid, 1 straw"
-              />
-            </label>
-            <label>
-              <span className={LABEL_CLASS}>场景 / 构图</span>
-              <textarea
-                value={draft.scene}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'scene', event.target.value))}
-                className={`${FIELD_CLASS} min-h-[76px] resize-y`}
-                placeholder="例：白底产品构图 / 厨房台面场景 / 尺寸标注信息图"
-              />
-            </label>
-            <label className="md:col-span-2">
-              <span className={LABEL_CLASS}>禁用元素</span>
-              <input
-                value={draft.forbidden}
-                onChange={(event) => setDraft((current) => updateDraft(current, 'forbidden', event.target.value))}
-                className={FIELD_CLASS}
-                placeholder="例：do not show phone, laptop, gift box"
-              />
-            </label>
+          <div className="mt-5 space-y-5">
+            <section>
+              <div className="ios-group-title">Product Profile</div>
+              <div className="ios-group grid gap-px bg-[hsl(var(--separator))] md:grid-cols-2">
+                {([
+                  ['productTitle', '商品标题', '例：Stainless Steel Insulated Travel Mug'],
+                  ['category', '类目', '例：Kitchen / Sports / Home'],
+                  ['brand', '品牌 / 型号', '只填商品真实品牌或型号'],
+                  ['color', '颜色', '例：matte black'],
+                  ['material', '材质 / 表面工艺', '例：304 stainless steel, silicone lid'],
+                  ['audience', '目标人群', '例：commuters, office workers'],
+                ] as const).map(([field, label, placeholder]) => (
+                  <label key={field} className="ios-group-row bg-[hsl(var(--surface))]">
+                    <span className={LABEL_CLASS}>{label}</span>
+                    <input
+                      value={draft[field]}
+                      onChange={(event) => setDraft((current) => updateDraft(current, field, event.target.value))}
+                      className={FIELD_CLASS}
+                      placeholder={placeholder}
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <div className="ios-group-title">Selling Story</div>
+              <div className="ios-group grid gap-px bg-[hsl(var(--separator))] md:grid-cols-2">
+                <label className="ios-group-row bg-[hsl(var(--surface))] md:col-span-2">
+                  <span className={LABEL_CLASS}>卖点</span>
+                  <textarea
+                    value={draft.sellingPoints}
+                    onChange={(event) => setDraft((current) => updateDraft(current, 'sellingPoints', event.target.value))}
+                    className={`${FIELD_CLASS} min-h-[86px] resize-y`}
+                    placeholder="一行一个卖点，或用分号分隔"
+                  />
+                </label>
+                <label className="ios-group-row bg-[hsl(var(--surface))]">
+                  <span className={LABEL_CLASS}>包装清单</span>
+                  <textarea
+                    value={draft.packageIncludes}
+                    onChange={(event) => setDraft((current) => updateDraft(current, 'packageIncludes', event.target.value))}
+                    className={`${FIELD_CLASS} min-h-[76px] resize-y`}
+                    placeholder="例：1 mug, 1 lid, 1 straw"
+                  />
+                </label>
+                <label className="ios-group-row bg-[hsl(var(--surface))]">
+                  <span className={LABEL_CLASS}>场景 / 构图</span>
+                  <textarea
+                    value={draft.scene}
+                    onChange={(event) => setDraft((current) => updateDraft(current, 'scene', event.target.value))}
+                    className={`${FIELD_CLASS} min-h-[76px] resize-y`}
+                    placeholder="例：白底产品构图 / 厨房台面场景 / 尺寸标注信息图"
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section>
+              <div className="ios-group-title">Guardrails</div>
+              <label className="ios-group ios-group-row block">
+                <span className={LABEL_CLASS}>禁用元素</span>
+                <input
+                  value={draft.forbidden}
+                  onChange={(event) => setDraft((current) => updateDraft(current, 'forbidden', event.target.value))}
+                  className={FIELD_CLASS}
+                  placeholder="例：do not show phone, laptop, gift box"
+                />
+              </label>
+            </section>
           </div>
         </div>
 
@@ -2308,7 +2367,7 @@ export default function AmazonPlanner() {
               </div>
               {stylePreview && (
                 <div
-                  className="pointer-events-none fixed z-50 hidden w-[420px] max-w-[calc(100vw-24px)] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl sm:block dark:border-white/[0.08] dark:bg-gray-950"
+                  className="ios-menu pointer-events-none fixed z-50 hidden w-[420px] max-w-[calc(100vw-24px)] overflow-hidden sm:block"
                   style={{ left: stylePreview.left, top: stylePreview.top }}
                 >
                   <img src={stylePreview.dataUrl} alt="" className="aspect-square w-full bg-gray-100 object-contain dark:bg-white/[0.04]" />
@@ -2327,7 +2386,7 @@ export default function AmazonPlanner() {
               )}
               {styleReferenceLimitExceeded && (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
-                  当前产品参考图加隐藏风格参考图共 {effectiveReferenceCount} 张，超过上限 {API_MAX_IMAGES} 张，请删除一张产品参考图后再提交。
+                  当前产品参考图加隐藏风格参考图共 {effectiveReferenceCount} 张，超过上限 {inputImageLimit} 张，请删除一张产品参考图后再提交。
                 </div>
               )}
             </div>
@@ -2524,14 +2583,14 @@ export default function AmazonPlanner() {
             {checks.map((check) => (
               <div
                 key={check.label}
-                className={`rounded-xl border px-3 py-2 ${check.status === 'ready' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200' : check.status === 'missing' ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200'}`}
+                className={`rounded-[var(--ios-radius-md)] px-3 py-2 ${check.status === 'ready' ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-200' : check.status === 'missing' ? 'bg-red-50 text-red-800 dark:bg-red-400/10 dark:text-red-200' : 'bg-amber-50 text-amber-800 dark:bg-amber-400/10 dark:text-amber-200'}`}
               >
                 <div className="text-xs font-semibold">{check.label}</div>
                 <div className="mt-0.5 text-[11px] opacity-80">{check.detail}</div>
               </div>
             ))}
           </div>
-          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/[0.08] dark:bg-gray-950">
+          <div className="ios-group mt-4 p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
                 Prompt Preview{plannerMode === 'aplus' && selectedAPlusPlan ? ` · ${selectedAPlusPlan.slot}` : selectedPlan ? ` · ${selectedPlan.slot}` : ''}
@@ -2542,13 +2601,13 @@ export default function AmazonPlanner() {
               value={plannerMode === 'aplus' && !selectedAPlusPlan
                 ? '请先点击 AI策划A+，再在右侧选择一个 A+ 模块。'
                 : activePlanPreview || '请先粘贴 Listing 并点击 AI策划，LLM 会生成中文策划、英文 Prompt 和 Negative Prompt。'}
-              className="h-[430px] w-full resize-none rounded-lg border border-gray-200 bg-white p-3 font-mono text-xs leading-relaxed text-gray-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-900 dark:text-gray-200"
+              className="ios-field h-[430px] w-full resize-none p-3 font-mono text-xs leading-relaxed text-gray-700 dark:text-gray-200"
               spellCheck={false}
               readOnly
             />
           </div>
           {plannerMode === 'aplus' && selectedAPlusPlan && (
-            <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/[0.08] dark:bg-gray-950">
+            <div className="ios-group mt-3 p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
                   A+ 文案 · {selectedAPlusPlan.slot}
@@ -2565,7 +2624,7 @@ export default function AmazonPlanner() {
               </div>
               <textarea
                 value={selectedAPlusText || (isAPlusTextModule(selectedAPlusPlan) ? '该模块暂未生成标题/正文文案。' : '当前模块通常不需要外部标题/正文文案。')}
-                className="h-28 w-full resize-none rounded-lg border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-white/[0.08] dark:bg-gray-900 dark:text-gray-200"
+                className="ios-field h-28 w-full resize-none p-3 text-xs leading-relaxed text-gray-700 dark:text-gray-200"
                 spellCheck={false}
                 readOnly
               />
@@ -2575,7 +2634,7 @@ export default function AmazonPlanner() {
             </div>
           )}
           {activePrompt.trim() && prompt.trim() && prompt !== activePrompt && (
-            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
+            <div className="mt-3 rounded-[var(--ios-radius-md)] bg-[hsl(var(--ios-blue-tint))] px-3 py-2 text-xs text-[hsl(var(--primary))]">
               底部输入框已有内容，点击“填入”会用当前亚马逊提示词覆盖。
             </div>
           )}

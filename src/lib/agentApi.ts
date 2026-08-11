@@ -1,4 +1,5 @@
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
+import { isImageStreamingEnabled } from './apiProfiles'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { appendOutputResolutionToPrompt, getApiErrorMessage, getPromptOutputResolution, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
 import { prepareReferenceImageAndMaskPayload, prepareReferenceImagePayload } from './referenceImagePayload'
@@ -106,7 +107,7 @@ function createImageTool(params: TaskParams, profile: ApiProfile, maskDataUrl?: 
     tool.output_compression = params.output_compression
   }
 
-  if (profile.streamImages) {
+  if (isImageStreamingEnabled(profile)) {
     tool.partial_images = profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES
   }
 
@@ -682,7 +683,7 @@ export async function callAgentResponsesApi(opts: {
       input: preparedInput,
       tools: createAgentTools(params, profile, settings, preparedPayload.maskDataUrl),
     }
-    if (profile.streamImages) {
+    if (isImageStreamingEnabled(profile)) {
       body.stream = true
     }
 
@@ -698,7 +699,7 @@ export async function callAgentResponsesApi(opts: {
       throw new Error(await getApiErrorMessage(response))
     }
 
-    if (profile.streamImages && isEventStreamResponse(response)) {
+    if (isImageStreamingEnabled(profile) && isEventStreamResponse(response)) {
       return parseAgentStreamResponse(response, mime, controller.signal, signal, onTextDelta, onOutputItems, onImageToolStarted, onImagePartialImage, onImageToolCompleted)
     }
 
@@ -848,7 +849,7 @@ export async function callBatchImageSingle(opts: {
     if (params.output_format !== 'png' && params.output_compression != null) {
       tool.output_compression = params.output_compression
     }
-    if (profile.streamImages) {
+    if (isImageStreamingEnabled(profile)) {
       tool.partial_images = profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES
     }
 
@@ -858,7 +859,7 @@ export async function callBatchImageSingle(opts: {
       tools: [tool],
       tool_choice: 'required',
     }
-    if (profile.streamImages) {
+    if (isImageStreamingEnabled(profile)) {
       body.stream = true
     }
 
@@ -876,7 +877,7 @@ export async function callBatchImageSingle(opts: {
     }
 
     // Handle streaming
-    if (profile.streamImages && isEventStreamResponse(response)) {
+    if (isImageStreamingEnabled(profile) && isEventStreamResponse(response)) {
       await onImageToolStarted?.()
       let completedImage: AgentApiResultImage | null = null
       let rawPayload: string | undefined

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { useStore, addImageFromUrl, ensureImageCached } from '../store'
+import { useStore, createInputImageFromUrl, ensureImageCached, openImageInSeedreamEditor } from '../store'
 import { copyImageSourceToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import { suppressGlobalClicks } from '../lib/clickSuppression'
@@ -8,7 +8,6 @@ import { CopyIcon, DownloadIcon, EditIcon } from './icons'
 export default function ImageContextMenu() {
   const [menuInfo, setMenuInfo] = useState<{ src: string; imageId?: string; outputImageIds: string[]; x: number; y: number } | null>(null)
   const showToast = useStore((s) => s.showToast)
-  const inputImages = useStore((s) => s.inputImages)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
@@ -163,30 +162,24 @@ export default function ImageContextMenu() {
   const handleEdit = async (e: React.MouseEvent) => {
     e.stopPropagation()
     setMenuInfo(null)
-    if (inputImages.length >= 16) {
-      showToast('参考图数量已达上限（16 张），无法继续添加', 'error')
-      return
-    }
-
     try {
-      const src = await getOriginalImageSrc()
-      await addImageFromUrl(src)
+      const imageId = menuInfo.imageId || (await createInputImageFromUrl(await getOriginalImageSrc())).id
+      openImageInSeedreamEditor(imageId)
       setDetailTaskId(null)
       setLightboxImageId(null)
       setMaskEditorImageId(null)
-      showToast('已加入参考图', 'success')
     } catch (err) {
       console.error(err)
-      showToast(`加入参考图失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+      showToast(`打开图片编辑失败：${err instanceof Error ? err.message : String(err)}`, 'error')
     }
   }
 
   // 保证菜单在视口内
   let left = menuInfo.x
   let top = menuInfo.y
-  const MENU_WIDTH = 120
+  const MENU_WIDTH = 168
   const showDownloadAll = menuInfo.outputImageIds.length > 1
-  const MENU_HEIGHT = showDownloadAll ? 160 : 128
+  const MENU_HEIGHT = showDownloadAll ? 184 : 140
 
   if (left + MENU_WIDTH > window.innerWidth) {
     left -= MENU_WIDTH
@@ -198,20 +191,20 @@ export default function ImageContextMenu() {
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 w-[120px] overflow-hidden animate-fade-in"
+      className="ios-menu fixed z-[9999] w-[168px] overflow-hidden py-1 animate-fade-in"
       style={{ left, top }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <button
         onClick={handleCopy}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        className="flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <CopyIcon className="w-4 h-4 flex-shrink-0" />
         复制
       </button>
       <button
         onClick={handleDownload}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <DownloadIcon className="w-4 h-4 flex-shrink-0" />
         下载
@@ -219,7 +212,7 @@ export default function ImageContextMenu() {
       {showDownloadAll && (
         <button
           onClick={handleDownloadAll}
-          className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+          className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
         >
           <DownloadIcon className="w-4 h-4 flex-shrink-0" />
           下载全部
@@ -227,10 +220,10 @@ export default function ImageContextMenu() {
       )}
       <button
         onClick={handleEdit}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+        className="flex min-h-11 w-full items-center gap-3 border-t border-[hsl(var(--separator))] px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-[hsl(var(--muted))] dark:text-gray-200"
       >
         <EditIcon className="w-4 h-4 flex-shrink-0" />
-        编辑
+        在图片编辑中打开
       </button>
     </div>
   )

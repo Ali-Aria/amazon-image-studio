@@ -102,7 +102,7 @@ export default function ViewportTooltip({ visible, children, className = '' }: V
       {effectiveVisible && createPortal(
         <div
           ref={tooltipRef}
-          className={`fixed pointer-events-none rounded-lg bg-gray-800 px-3 py-2 text-xs font-normal text-white shadow-lg ${className}`}
+          className={`ios-floating-chrome fixed pointer-events-none px-3 py-2 text-xs font-normal text-foreground ${className}`}
           style={{
             left: position?.left ?? 0,
             top: position?.top ?? 0,
@@ -112,7 +112,7 @@ export default function ViewportTooltip({ visible, children, className = '' }: V
         >
           {children}
           <div
-            className={`absolute left-0 border-4 border-transparent ${position?.placement === 'bottom' ? 'bottom-full border-b-gray-800' : 'top-full border-t-gray-800'}`}
+            className={`absolute left-0 border-4 border-transparent ${position?.placement === 'bottom' ? 'bottom-full border-b-[hsl(var(--surface-glass))]' : 'top-full border-t-[hsl(var(--surface-glass))]'}`}
             style={{
               left: position?.arrowLeft ?? 0,
               transform: 'translateX(-50%)',

@@ -241,3 +241,102 @@ export function WrenchIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+export function TagIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.59 13.41 13.41 20.59a2 2 0 0 1-2.82 0L3.41 13.41a2 2 0 0 1 0-2.82L10.59 3.4A2 2 0 0 1 12 2.82h7.17a2 2 0 0 1 2 2V12a2 2 0 0 1-.58 1.41Z" />
+      <circle cx="16.5" cy="7.5" r="1.25" strokeWidth={1.75} />
+    </svg>
+  )
+}
+
+export function UndoIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7 4 12l5 5M5 12h8a6 6 0 0 1 6 6" />
+    </svg>
+  )
+}
+
+export function RedoIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m15 7 5 5-5 5m4-5h-8a6 6 0 0 0-6 6" />
+    </svg>
+  )
+}
+
+export function MoveIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m12 2-3 3m3-3 3 3m-3-3v20m0 0-3-3m3 3 3-3M2 12l3-3m-3 3 3 3M2 12h20m0 0-3-3m3 3-3 3" />
+    </svg>
+  )
+}
+
+export function BrushIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m14 5 5 5M13 6l5-3 3 3-3 5M14 5 7 12m0 0c-2 0-4 2-4 5 2-1 4 1 6-1 1-1 1-3-2-4Z" />
+    </svg>
+  )
+}
+
+export function RectangleIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <rect x="4" y="5" width="16" height="14" rx="1" strokeWidth={2} />
+    </svg>
+  )
+}
+
+export function EllipseIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <ellipse cx="12" cy="12" rx="9" ry="7" strokeWidth={2} />
+    </svg>
+  )
+}
+
+export function ArrowIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19 19 5m-8 0h8v8" />
+    </svg>
+  )
+}
+
+export function EraserIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m7 20-4-4L14 5a3 3 0 0 1 4 0l1 1a3 3 0 0 1 0 4L9 20H7Zm4-13 6 6M7 20h13" />
+    </svg>
+  )
+}
+
+export function HandIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12V6a2 2 0 0 1 4 0v5-7a2 2 0 0 1 4 0v7-5a2 2 0 0 1 4 0v8c0 5-3 8-8 8h-1c-3 0-5-2-7-5l-2-3a2 2 0 0 1 3-2l3 3v-3Z" />
+    </svg>
+  )
+}
+
+export function ZoomInIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <circle cx="10.5" cy="10.5" r="6.5" strokeWidth={2} />
+      <path strokeLinecap="round" strokeWidth={2} d="M15.5 15.5 21 21M10.5 7v7m-3.5-3.5h7" />
+    </svg>
+  )
+}
+
+export function ZoomOutIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <circle cx="10.5" cy="10.5" r="6.5" strokeWidth={2} />
+      <path strokeLinecap="round" strokeWidth={2} d="M15.5 15.5 21 21M7 10.5h7" />
+    </svg>
+  )
+}

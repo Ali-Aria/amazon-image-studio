@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { DEFAULT_PARAMS } from './types'
-import { createDefaultFalProfile, createDefaultOpenAIProfile, DEFAULT_RESPONSES_MODEL, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
+import { createDefaultFalProfile, createDefaultOpenAIProfile, createDefaultVolcengineProfile, DEFAULT_RESPONSES_MODEL, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
 import type { AgentConversation, AmazonPlannerSession, ExportData, RetailProject, StoredImage, StoredImageThumbnail, TaskRecord } from './types'
 import { getSelectedImageMentionLabel } from './lib/promptImageMentions'
 import { createRetailProject } from './lib/retailProject'
@@ -107,7 +107,8 @@ vi.mock('./lib/agentApi', () => ({
 }))
 import { clearAmazonPlannerSessions, clearImages, clearRetailProjects, getAllAmazonPlannerSessions, getAllRetailProjects, getImage, putAmazonPlannerSession, putImage, putRetailProject } from './lib/db'
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
-import { cleanStaleAgentInputDrafts, clearData, editOutputs, exportData, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, mergePersistedState, regenerateAgentAssistantMessage, removeTask, retryTask, reuseConfig, submitAgentMessage, submitTask, useStore } from './store'
+import { callImageApi } from './lib/api'
+import { cleanStaleAgentInputDrafts, clearData, editOutputs, exportData, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, mergePersistedState, openSeedreamTaskInEditor, regenerateAgentAssistantMessage, removeTask, retryTask, reuseConfig, submitAgentMessage, submitTask, submitTaskWithInput, useStore } from './store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -151,6 +152,15 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
     elapsed: 1,
     ...overrides,
   }
+}
+
+function settingsWithConfiguredImageProfile(apiKey = 'test-key') {
+  return normalizeSettings({
+    ...DEFAULT_SETTINGS,
+    profiles: DEFAULT_SETTINGS.profiles.map((profile) =>
+      profile.id === DEFAULT_SETTINGS.activeProfileId ? { ...profile, apiKey } : profile,
+    ),
+  })
 }
 
 function amazonPlannerSession(overrides: Partial<AmazonPlannerSession> = {}): AmazonPlannerSession {
@@ -217,11 +227,21 @@ function importFile(data: ExportData): File {
 describe('mask draft lifecycle in store actions', () => {
   beforeEach(() => {
     useStore.setState({
-      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key' },
+      settings: settingsWithConfiguredImageProfile(),
       prompt: 'prompt',
       inputImages: [],
       maskDraft: null,
       maskEditorImageId: null,
+      seedreamEditorDraft: {
+        engine: 'home',
+        sourceImageId: null,
+        referenceImageIds: [],
+        instruction: '',
+        annotations: [],
+        resolution: '2k',
+        latestTaskId: null,
+        updatedAt: 0,
+      },
       params: { ...DEFAULT_PARAMS },
       pendingTaskCategory: null,
       tasks: [],
@@ -236,7 +256,7 @@ describe('mask draft lifecycle in store actions', () => {
     })
   })
 
-  it('replaces the current draft with one output image when quick editing output', async () => {
+  it('opens an output in the isolated image editor without changing the home draft', async () => {
     await putImage(imageB)
     const maskDraft = {
       targetImageId: imageA.id,
@@ -253,10 +273,16 @@ describe('mask draft lifecycle in store actions', () => {
     await editOutputs(task({ outputImages: [imageB.id] }))
 
     const state = useStore.getState()
-    expect(state.prompt).toBe('')
-    expect(state.inputImages).toEqual([imageB])
-    expect(state.maskDraft).toBeNull()
-    expect(state.maskEditorImageId).toBeNull()
+    expect(state.prompt).toBe('old prompt')
+    expect(state.inputImages).toEqual([imageA])
+    expect(state.maskDraft).toEqual(maskDraft)
+    expect(state.maskEditorImageId).toBe(imageA.id)
+    expect(state.seedreamEditorDraft).toMatchObject({
+      sourceImageId: imageB.id,
+      instruction: '',
+      annotations: [],
+      latestTaskId: null,
+    })
   })
 
   it('clears an invalid mask draft when submit cannot find the mask target image', async () => {
@@ -286,7 +312,7 @@ describe('mask draft lifecycle in store actions', () => {
   it.each([
     { apiMode: 'chat' as const, model: 'deepseek-v4-flash', label: 'Chat Completions' },
     { apiMode: 'responses' as const, model: DEFAULT_RESPONSES_MODEL, label: 'Responses API' },
-  ])('blocks gallery submit with a switch-config dialog when the active profile is $label', async ({ apiMode, model, label }) => {
+  ])('keeps a text-only $label profile in the planner role instead of the image role', async ({ apiMode, model }) => {
     const plannerProfile = createDefaultOpenAIProfile({
       id: `planner-profile-${apiMode}`,
       name: 'AI策划',
@@ -294,27 +320,22 @@ describe('mask draft lifecycle in store actions', () => {
       apiMode,
       model,
     })
-    useStore.setState({
-      settings: normalizeSettings({
-        profiles: [plannerProfile],
-        activeProfileId: plannerProfile.id,
-      }),
+    const migratedSettings = normalizeSettings({
+      profiles: [plannerProfile],
+      activeProfileId: plannerProfile.id,
     })
+    useStore.setState({ settings: migratedSettings })
 
     const submitted = await submitTask()
 
     const state = useStore.getState()
     expect(submitted).toBe(false)
     expect(state.tasks).toHaveLength(0)
-    expect(state.setConfirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      title: '当前配置不能生图',
-      confirmText: '去切换配置',
-      cancelText: '取消',
-      message: expect.stringContaining(label),
-    }))
-    expect(state.setConfirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining('普通生图只支持 Images API'),
-    }))
+    expect(migratedSettings.activeProfileId).not.toBe(plannerProfile.id)
+    expect(migratedSettings.profiles.find((profile) => profile.id === migratedSettings.activeProfileId)?.apiMode).toBe('images')
+    expect(migratedSettings.amazonPlannerProfileId).toBe(plannerProfile.id)
+    expect(state.showToast).toHaveBeenCalledWith('请先完善请求 API 配置：缺少 API Key', 'error')
+    expect(state.setConfirmDialog).not.toHaveBeenCalledWith(expect.objectContaining({ title: '当前配置不能生图' }))
   })
 
   it('allows gallery submit when the active Chat Completions profile is an OpenRouter image model', async () => {
@@ -343,7 +364,7 @@ describe('mask draft lifecycle in store actions', () => {
     }))
   })
 
-  it('blocks retry with a switch-config dialog when the active profile is Responses API', async () => {
+  it('requires the migrated fallback image profile to be configured before retrying', async () => {
     const responseProfile = createDefaultOpenAIProfile({
       id: 'responses-profile',
       name: 'AI策划',
@@ -363,8 +384,8 @@ describe('mask draft lifecycle in store actions', () => {
     const state = useStore.getState()
     expect(state.tasks).toHaveLength(0)
     expect(state.setConfirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      title: '当前配置不能生图',
-      message: expect.stringContaining('Responses API'),
+      title: '首页生图配置不可用',
+      message: expect.stringContaining('缺少 API Key'),
     }))
   })
 
@@ -543,6 +564,7 @@ describe('mask draft lifecycle in store actions', () => {
         productTitle: 'Large Folding Umbrella',
         workflow: 'amazon-listing',
         amazonSlot: 'PT02',
+        marketplaceId: 'jp',
       },
     }))
 
@@ -554,11 +576,12 @@ describe('mask draft lifecycle in store actions', () => {
       productTitle: 'Large Folding Umbrella',
       workflow: 'amazon-listing',
       amazonSlot: 'PT02',
+      marketplaceId: 'jp',
     })
     expect(state.pendingTaskCategory).toBeNull()
   })
 
-  it('preserves edit-output Listing category on the next submit even after entering a new prompt', async () => {
+  it('does not leak an image-editor launch category into the next home submit', async () => {
     const outputImage = { id: 'listing-output-image', dataUrl: 'data:image/png;base64,listing-output' }
     await clearImages()
     await putImage(outputImage)
@@ -575,11 +598,7 @@ describe('mask draft lifecycle in store actions', () => {
     useStore.getState().setPrompt('edit this listing image')
     await submitTask()
 
-    expect(useStore.getState().tasks[0]?.category).toMatchObject({
-      productTitle: 'Large Folding Umbrella',
-      workflow: 'amazon-listing',
-      amazonSlot: 'MAIN',
-    })
+    expect(useStore.getState().tasks[0]?.category).toEqual({ workflow: 'gallery' })
   })
 
   it('preserves reused A+ category and type on the next submit', async () => {
@@ -956,6 +975,220 @@ describe('data import', () => {
   })
 })
 
+describe('Seedream editor state and submission', () => {
+  const homeProfile = createDefaultOpenAIProfile({ id: 'home-profile', apiKey: 'openai-key' })
+  const editorProfile = createDefaultVolcengineProfile({ id: 'editor-profile', apiKey: 'ark-key' })
+
+  beforeEach(async () => {
+    await clearImages()
+    vi.mocked(callImageApi).mockClear()
+    useStore.setState({
+      settings: normalizeSettings({
+        profiles: [homeProfile, editorProfile],
+        activeProfileId: homeProfile.id,
+        seedreamEditorProfileId: editorProfile.id,
+      }),
+      prompt: 'home prompt',
+      inputImages: [imageA],
+      tasks: [],
+      seedreamEditorDraft: {
+        engine: 'home',
+        sourceImageId: null,
+        referenceImageIds: [],
+        instruction: '',
+        annotations: [],
+        resolution: '2k',
+        latestTaskId: null,
+        updatedAt: 0,
+      },
+      showToast: vi.fn(),
+    })
+  })
+
+  it('persists and restores image IDs, vector annotations, resolution, and latest task', () => {
+    useStore.getState().setSeedreamEditorDraft({
+      engine: 'seedream',
+      sourceImageId: 'source-image',
+      referenceImageIds: ['ref-a', 'ref-b'],
+      instruction: '删除标签',
+      annotations: [{
+        id: 'annotation-a',
+        kind: 'rectangle',
+        color: '#ef4444',
+        width: 0.006,
+        points: [{ x: 0.2, y: 0.3 }, { x: 0.7, y: 0.8 }],
+      }],
+      resolution: '4k',
+      latestTaskId: 'task-latest',
+    })
+
+    const persisted = getPersistedState(useStore.getState())
+    const restored = mergePersistedState(persisted, useStore.getState())
+
+    expect(restored.seedreamEditorDraft).toMatchObject({
+      engine: 'seedream',
+      sourceImageId: 'source-image',
+      referenceImageIds: ['ref-a', 'ref-b'],
+      instruction: '删除标签',
+      resolution: '4k',
+      latestTaskId: 'task-latest',
+    })
+    expect(restored.seedreamEditorDraft.annotations[0]).toMatchObject({ id: 'annotation-a', kind: 'rectangle' })
+  })
+
+  it('submits through the editor profile without changing the home active profile', async () => {
+    const source = { id: 'source-image', dataUrl: 'data:image/png;base64,c291cmNl' }
+    const guide = { id: 'guide-image', dataUrl: 'data:image/png;base64,Z3VpZGU=' }
+    const reference = { id: 'reference-image', dataUrl: 'data:image/png;base64,cmVm' }
+    await Promise.all([putImage(source), putImage(guide), putImage(reference)])
+
+    const taskId = await submitTaskWithInput({
+      apiProfileId: editorProfile.id,
+      prompt: 'role prompt',
+      inputImages: [source, guide, reference],
+      params: { ...DEFAULT_PARAMS, size: '4K', n: 1 },
+      category: { workflow: 'seedream-edit' },
+      imageEditContext: {
+        engine: 'seedream',
+        sourceImageId: source.id,
+        visualGuideImageId: guide.id,
+        referenceImageIds: [reference.id],
+        userInstruction: '替换框选的杯子',
+      },
+    })
+
+    const state = useStore.getState()
+    const submitted = state.tasks.find((item) => item.id === taskId)
+    expect(state.settings.activeProfileId).toBe(homeProfile.id)
+    expect(submitted).toMatchObject({
+      apiProfileId: editorProfile.id,
+      apiProvider: 'volcengine',
+      inputImageIds: [source.id, guide.id, reference.id],
+      params: { size: '4K', n: 1 },
+      category: { workflow: 'seedream-edit' },
+      imageEditContext: {
+        engine: 'seedream',
+        sourceImageId: source.id,
+        visualGuideImageId: guide.id,
+        referenceImageIds: [reference.id],
+        userInstruction: '替换框选的杯子',
+      },
+    })
+    await vi.waitFor(() => expect(callImageApi).toHaveBeenCalled())
+    expect(vi.mocked(callImageApi).mock.calls[0][0].inputImageDataUrls).toEqual([
+      source.dataUrl,
+      guide.dataUrl,
+      reference.dataUrl,
+    ])
+  })
+
+  it('submits an image edit through the active home generation profile', async () => {
+    const source = { id: 'gpt-source', dataUrl: 'data:image/png;base64,Z3B0LXNvdXJjZQ==' }
+    const reference = { id: 'gpt-reference', dataUrl: 'data:image/png;base64,Z3B0LXJlZg==' }
+    await Promise.all([putImage(source), putImage(reference)])
+
+    const taskId = await submitTaskWithInput({
+      apiProfileId: homeProfile.id,
+      prompt: 'edit with the home image API',
+      inputImages: [source, reference],
+      params: { ...DEFAULT_PARAMS, size: '2048x2048', n: 1 },
+      category: { workflow: 'seedream-edit' },
+      imageEditContext: {
+        engine: 'home',
+        sourceImageId: source.id,
+        visualGuideImageId: null,
+        referenceImageIds: [reference.id],
+        userInstruction: '把产品改成蓝色',
+      },
+    })
+
+    const submitted = useStore.getState().tasks.find((item) => item.id === taskId)
+    expect(useStore.getState().settings.activeProfileId).toBe(homeProfile.id)
+    expect(submitted).toMatchObject({
+      apiProfileId: homeProfile.id,
+      apiProvider: 'openai',
+      inputImageIds: [source.id, reference.id],
+      category: { workflow: 'seedream-edit' },
+      imageEditContext: { engine: 'home' },
+    })
+    await vi.waitFor(() => expect(callImageApi).toHaveBeenCalled())
+    const imageApiCalls = vi.mocked(callImageApi).mock.calls
+    expect(imageApiCalls[imageApiCalls.length - 1]?.[0].inputImageDataUrls).toEqual([
+      source.dataUrl,
+      reference.dataUrl,
+    ])
+  })
+
+  it('retries a GPT editor task without requiring a Seedream profile', async () => {
+    const source = { id: 'retry-source', dataUrl: 'data:image/png;base64,cmV0cnk=' }
+    await putImage(source)
+    const failedTask = task({
+      id: 'gpt-edit-failed',
+      prompt: 'edit with GPT',
+      params: { ...DEFAULT_PARAMS, size: '2048x2048' },
+      apiProvider: 'openai',
+      apiProfileId: homeProfile.id,
+      apiProfileName: homeProfile.name,
+      apiMode: homeProfile.apiMode,
+      apiModel: homeProfile.model,
+      inputImageIds: [source.id],
+      status: 'error',
+      error: 'network error',
+      category: { workflow: 'seedream-edit' },
+      imageEditContext: {
+        engine: 'home',
+        sourceImageId: source.id,
+        referenceImageIds: [],
+        userInstruction: '保留主体并改色',
+      },
+    })
+    useStore.setState({ tasks: [failedTask] })
+
+    await retryTask(failedTask)
+
+    const retried = useStore.getState().tasks.find((item) => item.id !== failedTask.id)
+    expect(retried).toMatchObject({
+      apiProvider: 'openai',
+      apiProfileId: homeProfile.id,
+      imageEditContext: { engine: 'home' },
+    })
+    expect(useStore.getState().seedreamEditorDraft).toMatchObject({
+      engine: 'home',
+      latestTaskId: retried?.id,
+    })
+  })
+
+  it('restores a Seedream task into the editor instead of the home input', () => {
+    openSeedreamTaskInEditor(task({
+      id: 'seedream-task',
+      prompt: 'role prompt',
+      params: { ...DEFAULT_PARAMS, size: '4K' },
+      category: { workflow: 'seedream-edit' },
+      inputImageIds: ['source-image', 'guide-image', 'ref-a'],
+      imageEditContext: {
+        engine: 'seedream',
+        sourceImageId: 'source-image',
+        visualGuideImageId: 'guide-image',
+        referenceImageIds: ['ref-a'],
+        userInstruction: '把杯子改成绿色',
+      },
+    }))
+
+    const state = useStore.getState()
+    expect(state.prompt).toBe('home prompt')
+    expect(state.inputImages).toEqual([imageA])
+    expect(state.seedreamEditorDraft).toMatchObject({
+      engine: 'seedream',
+      sourceImageId: 'source-image',
+      referenceImageIds: ['ref-a'],
+      instruction: '把杯子改成绿色',
+      annotations: [],
+      resolution: '4k',
+      latestTaskId: 'seedream-task',
+    })
+  })
+})
+
 describe('data export and clearing', () => {
   beforeEach(async () => {
     await clearAmazonPlannerSessions()
@@ -965,7 +1198,7 @@ describe('data export and clearing', () => {
       tasks: [],
       agentConversations: [],
       activeAgentConversationId: null,
-      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key' },
+      settings: settingsWithConfiguredImageProfile(),
       showToast: vi.fn(),
     })
   })

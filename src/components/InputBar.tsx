@@ -2,8 +2,8 @@ import { useRef, useEffect, useCallback, useState, useMemo, useLayoutEffect, typ
 import { createPortal } from 'react-dom'
 import { useStore, submitTask, submitAgentMessage, stopAgentResponse, addImageFromFile, createInputImageFromFile, deleteImageIfUnreferenced, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached, getActiveAgentRounds } from '../store'
 import { DEFAULT_PARAMS } from '../types'
-import { getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
-import { DEFAULT_FAL_IMAGE_SIZE, getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
+import { createApiProfileRequestSettings, getAmazonPlannerProfile, getHomeApiProfile, isAliyunQwenImageProfile } from '../lib/apiProfiles'
+import { DEFAULT_FAL_IMAGE_SIZE, DEFAULT_VOLCENGINE_IMAGE_SIZE, getChangedParams, getInputImageLimitForSettings, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, getSelectedTextMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, insertTextMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
 import { normalizeImageSize } from '../lib/size'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
@@ -335,8 +335,6 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
   )
 }
 
-/** API 支持的最大参考图数量 */
-const API_MAX_IMAGES = 16
 const DESKTOP_DOCK_MIN_WIDTH = 1024
 const DESKTOP_DOCK_BOTTOM_CLEARANCE = 32
 const AT_IMAGE_MENU_WIDTH = 256
@@ -514,7 +512,7 @@ export default function InputBar() {
   const [submitHover, setSubmitHover] = useState(false)
   const [attachHover, setAttachHover] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
-  const [mobileCollapsed, setMobileCollapsed] = useState(false)
+  const [mobileCollapsed, setMobileCollapsed] = useState(true)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [showMobileUploadMenu, setShowMobileUploadMenu] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
@@ -584,21 +582,24 @@ export default function InputBar() {
   const dragCounter = useRef(0)
   const isMobile = useIsMobile()
 
-  const currentActiveProfile = useMemo(() => getActiveApiProfile(settings), [settings])
+  const currentHomeProfile = useMemo(() => getHomeApiProfile(settings), [settings])
+  const currentPlannerProfile = useMemo(() => getAmazonPlannerProfile(settings), [settings])
+  const currentActiveProfile = appMode === 'agent' && currentPlannerProfile
+    ? currentPlannerProfile
+    : currentHomeProfile
   const activeProfile = useMemo(() => (
-    settings.reuseTaskApiProfileTemporarily && reusedTaskApiProfileId
-      ? settings.profiles.find((profile) => profile.id === reusedTaskApiProfileId) ?? currentActiveProfile
+    appMode !== 'agent' && settings.reuseTaskApiProfileTemporarily && reusedTaskApiProfileId
+      ? settings.profiles.find((profile) => profile.id === reusedTaskApiProfileId && profile.provider !== 'volcengine') ?? currentActiveProfile
       : currentActiveProfile
-  ), [currentActiveProfile, reusedTaskApiProfileId, settings])
+  ), [appMode, currentActiveProfile, reusedTaskApiProfileId, settings])
   const activeAgentConversation = appMode === 'agent'
     ? agentConversations.find((conversation) => conversation.id === activeAgentConversationId) ?? null
     : null
   const activeAgentIsRunning = Boolean(activeAgentConversation?.rounds.some((round) => round.status === 'running'))
-  const effectiveSettings = useMemo(() => (
-    activeProfile.id === currentActiveProfile.id
-      ? settings
-      : normalizeSettings({ ...settings, activeProfileId: activeProfile.id })
-  ), [activeProfile.id, currentActiveProfile.id, settings])
+  const effectiveSettings = useMemo(
+    () => createApiProfileRequestSettings(settings, activeProfile) ?? settings,
+    [activeProfile, settings],
+  )
   const hasSubmitApiConfig = Boolean(activeProfile.apiKey)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !activeAgentIsRunning)
   const submitButtonAriaLabel = activeAgentIsRunning
@@ -629,20 +630,31 @@ export default function InputBar() {
   }, [setPrompt])
   const activeProvider = activeProfile.provider
   const isFalProvider = activeProvider === 'fal'
+  const isVolcengineProvider = activeProvider === 'volcengine'
+  const isAliyunQwenProvider = isAliyunQwenImageProfile(activeProfile)
   const agentAutoImageCount = appMode === 'agent' && activeProfile.provider === 'openai' && activeProfile.apiMode === 'responses'
-  const moderationDisabled = isFalProvider
-  const compressionDisabled = params.output_format === 'png' || isFalProvider
+  const moderationDisabled = isFalProvider || isVolcengineProvider || isAliyunQwenProvider
+  const qualityDisabled = settings.codexCli || isVolcengineProvider || isAliyunQwenProvider
+  const compressionDisabled = params.output_format === 'png' || isFalProvider || isVolcengineProvider || isAliyunQwenProvider
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
+  const inputImageLimit = getInputImageLimitForSettings(effectiveSettings)
   const isFalTextToImage = isFalProvider && inputImages.length === 0
+  const isVolcengineAutoSize = isVolcengineProvider && params.size === 'auto'
   const nDraftValue = Number(nInput)
   const effectiveNValue = Number.isNaN(nDraftValue) ? params.n : nDraftValue
-  const streamConcurrentByN = activeProfile.provider === 'openai' && activeProfile.streamImages === true && !agentAutoImageCount && effectiveNValue > 1
+  const streamConcurrentByN = false
   const nLimitHintText = agentAutoImageCount
     ? 'Agent 模式下数量由模型根据提示词自动决定'
     : isFalProvider
     ? `fal.ai 最大请求数量为 ${outputImageLimit}`
+    : isVolcengineProvider
+    ? `火山方舟最大请求数量为 ${outputImageLimit}`
+    : isAliyunQwenProvider
+    ? `当前图片接口最大请求数量为 ${outputImageLimit}`
     : `OpenAI 最大请求数量为 ${outputImageLimit}`
-  const displaySize = isFalTextToImage && params.size === 'auto'
+  const displaySize = isVolcengineAutoSize
+    ? DEFAULT_VOLCENGINE_IMAGE_SIZE
+    : isFalTextToImage && params.size === 'auto'
     ? DEFAULT_FAL_IMAGE_SIZE
     : normalizeImageSize(params.size) || DEFAULT_PARAMS.size
 
@@ -658,12 +670,12 @@ export default function InputBar() {
         { label: 'medium', value: 'medium' },
         { label: 'high', value: 'high' },
       ]
-  const atImageLimit = inputImages.length >= API_MAX_IMAGES
-  const uploadImageTooltipText = atImageLimit ? `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加` : '上传图片'
+  const atImageLimit = inputImages.length >= inputImageLimit
+  const uploadImageTooltipText = atImageLimit ? `参考图数量已达上限（${inputImageLimit} 张），无法继续添加` : '上传图片'
   const compressionHint = useHintTooltip({ enabled: () => compressionDisabled })
   const moderationHint = useHintTooltip({ enabled: () => moderationDisabled })
-  const sizeHint = useHintTooltip({ enabled: () => isFalTextToImage })
-  const qualityHint = useHintTooltip({ enabled: () => settings.codexCli || isFalProvider })
+  const sizeHint = useHintTooltip({ enabled: () => isFalTextToImage || isVolcengineAutoSize })
+  const qualityHint = useHintTooltip({ enabled: () => settings.codexCli || isFalProvider || isVolcengineProvider || isAliyunQwenProvider })
   const nLimitHint = useHintTooltip({ autoHideMs: 2000 })
   const maskTargetImage = maskDraft
     ? inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null
@@ -957,15 +969,15 @@ export default function InputBar() {
   const handleFiles = async (files: FileList | File[]) => {
     try {
       const currentCount = useStore.getState().inputImages.length
-      if (currentCount >= API_MAX_IMAGES) {
+      if (currentCount >= inputImageLimit) {
         useStore.getState().showToast(
-          `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`,
+          `参考图数量已达上限（${inputImageLimit} 张），无法继续添加`,
           'error',
         )
         return
       }
 
-      const remaining = API_MAX_IMAGES - currentCount
+      const remaining = inputImageLimit - currentCount
       const accepted = Array.from(files).filter((f) => f.type.startsWith('image/'))
       const toAdd = accepted.slice(0, remaining)
       const discarded = accepted.length - toAdd.length
@@ -976,7 +988,7 @@ export default function InputBar() {
 
       if (discarded > 0) {
         useStore.getState().showToast(
-          `已达上限 ${API_MAX_IMAGES} 张，${discarded} 张图片被丢弃`,
+          `已达上限 ${inputImageLimit} 张，${discarded} 张图片被丢弃`,
           'error',
         )
       }
@@ -1419,7 +1431,7 @@ export default function InputBar() {
     }
   }, [])
 
-  const selectClass = 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] text-xs transition-all duration-200 shadow-sm'
+  const selectClass = 'ios-select-trigger px-3 py-1.5 text-xs'
 
   const getTouchDropIndex = (touch: React.Touch) => {
     const target = document
@@ -1771,7 +1783,7 @@ export default function InputBar() {
         </div>
         {touchDragPreview?.src && createPortal(
           <div
-            className="fixed z-[140] h-[52px] w-[52px] overflow-hidden rounded-xl shadow-xl pointer-events-none opacity-90"
+            className="ios-floating-chrome fixed z-[140] h-[52px] w-[52px] overflow-hidden pointer-events-none opacity-90"
             style={{ left: touchDragPreview.x, top: touchDragPreview.y, transform: 'translate(-50%, -50%)' }}
           >
             <img src={touchDragPreview.src} className="h-full w-full object-cover" alt="" />
@@ -1803,8 +1815,12 @@ export default function InputBar() {
           {displaySize}
         </button>
         <ButtonTooltip
-          visible={isFalTextToImage && sizeHint.visible}
-          text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
+          visible={(isFalTextToImage || isVolcengineAutoSize) && sizeHint.visible}
+          text={
+            isVolcengineAutoSize
+              ? <>火山方舟 Seedream 会将 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 尺寸规范为 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">{DEFAULT_VOLCENGINE_IMAGE_SIZE}</code></>
+              : <>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>
+          }
         />
       </label>
       <label
@@ -1818,19 +1834,27 @@ export default function InputBar() {
       >
         <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
         <Select
-          value={settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
+          value={qualityDisabled ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
           onChange={(val) => {
-            if (!settings.codexCli) setParams({ quality: val as any })
+            if (!qualityDisabled) setParams({ quality: val as any })
           }}
           options={qualityOptions}
-          disabled={settings.codexCli}
-          className={settings.codexCli
+          disabled={qualityDisabled}
+          className={qualityDisabled
             ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
             : selectClass}
         />
         <ButtonTooltip
-          visible={(settings.codexCli || isFalProvider) && qualityHint.visible}
-          text={isFalProvider ? <>fal.ai 不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 质量参数</> : 'Codex CLI 不支持质量参数'}
+          visible={(qualityDisabled || isFalProvider) && qualityHint.visible}
+          text={
+            isVolcengineProvider
+              ? '火山方舟 Seedream 不支持质量参数'
+              : isAliyunQwenProvider
+              ? '当前图片接口不支持质量参数'
+              : isFalProvider
+              ? <>fal.ai 不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 质量参数</>
+              : 'Codex CLI 不支持质量参数'
+          }
         />
       </label>
       <label className="flex flex-col gap-0.5">
@@ -1873,7 +1897,7 @@ export default function InputBar() {
         />
         <ButtonTooltip
           visible={compressionHint.visible}
-          text={isFalProvider ? 'fal.ai 不支持压缩率参数' : '仅 JPEG 和 WebP 支持压缩率'}
+          text={isVolcengineProvider ? '火山方舟 Seedream 不支持压缩率参数' : isAliyunQwenProvider ? '当前图片接口固定输出 PNG' : isFalProvider ? 'fal.ai 不支持压缩率参数' : '仅 JPEG 和 WebP 支持压缩率'}
         />
       </label>
       <label
@@ -1902,7 +1926,7 @@ export default function InputBar() {
         />
         <ButtonTooltip
           visible={moderationDisabled && moderationHint.visible}
-          text="fal.ai 不支持审核参数"
+          text={isVolcengineProvider ? '火山方舟 Seedream 不支持审核参数' : isAliyunQwenProvider ? '当前图片接口不支持审核参数' : 'fal.ai 不支持审核参数'}
         />
       </label>
       <label
@@ -1974,7 +1998,7 @@ export default function InputBar() {
             <div className="text-center">
               {atImageLimit ? (
                 <>
-                  <p className="text-lg font-semibold text-red-500">已达上限 {API_MAX_IMAGES} 张</p>
+                  <p className="text-lg font-semibold text-red-500">已达上限 {inputImageLimit} 张</p>
                   <p className="text-sm text-gray-400 mt-1">请先移除部分参考图后再添加</p>
                 </>
               ) : (
@@ -1990,7 +2014,7 @@ export default function InputBar() {
 
       {showSizePicker && (
         <SizePickerModal
-          currentSize={isFalTextToImage && params.size === 'auto' ? DEFAULT_FAL_IMAGE_SIZE : params.size}
+          currentSize={isVolcengineAutoSize ? DEFAULT_VOLCENGINE_IMAGE_SIZE : isFalTextToImage && params.size === 'auto' ? DEFAULT_FAL_IMAGE_SIZE : params.size}
           onSelect={(size) => setParams({ size })}
           onClose={() => setShowSizePicker(false)}
           allowAuto={!isFalTextToImage}
@@ -2000,7 +2024,7 @@ export default function InputBar() {
       <div data-input-bar className="home-input-dock pointer-events-none fixed bottom-4 left-1/2 z-30 w-full max-w-4xl -translate-x-1/2 px-3 transition-all duration-300 sm:bottom-6 sm:px-4 lg:bottom-6 lg:left-auto lg:top-20 lg:flex lg:max-w-none lg:translate-x-0 lg:flex-col lg:px-0">
         {selectedTaskIds.length > 0 && (
           <div className="mb-3 flex justify-center lg:justify-end">
-            <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-gray-200/50 dark:border-white/10 pointer-events-auto">
+            <div className="ios-floating-chrome pointer-events-auto flex items-center rounded-full p-1">
               <button
                 onClick={clearSelection}
                 className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
@@ -2066,7 +2090,7 @@ export default function InputBar() {
             </div>
           </div>
         )}
-        <div ref={cardRef} className="pointer-events-auto bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
+        <div ref={cardRef} className="ios-floating-chrome pointer-events-auto p-3 sm:p-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
           {/* 移动端拖动条 */}
           <div
             ref={handleRef}
@@ -2101,11 +2125,10 @@ export default function InputBar() {
               renderImageThumbs()
             )
           )}
-
           {/* 输入框 */}
           <div className="relative grid lg:min-h-0 lg:flex-1">
             {showAtImageMenu && (
-              <div style={{ left: `${menuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
+              <div style={{ left: `${menuLeft}px` }} className="ios-menu absolute bottom-full z-50 mb-2 w-64 overflow-hidden p-1.5">
                 <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">选择图片引用</div>
                 <div className="max-h-56 overflow-y-auto custom-scrollbar">
                   {atImageOptions.map((option, optionIndex) => (
@@ -2176,7 +2199,7 @@ export default function InputBar() {
                 syncMentionTagSelection(el)
               }}
               aria-label={promptPlaceholder}
-              className="col-start-1 row-start-1 min-h-[42px] w-full overflow-hidden ios-rounded-scroll-fix whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 pl-4 pr-10 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30 lg:h-full"
+              className="ios-field col-start-1 row-start-1 min-h-[42px] w-full overflow-hidden ios-rounded-scroll-fix whitespace-pre-wrap break-words pl-4 pr-10 py-3 text-sm leading-relaxed dark:text-gray-100 lg:h-full"
             />
             {prompt.length === 0 && (
               <div className="prompt-placeholder col-start-1 row-start-1 pointer-events-none pl-4 pr-10 py-3 text-sm leading-relaxed text-gray-400 dark:text-gray-500">
@@ -2302,7 +2325,7 @@ export default function InputBar() {
                         className="fixed inset-0 z-40"
                         onClick={() => setShowMobileUploadMenu(false)}
                       />
-                      <div className="absolute bottom-full left-0 mb-2 w-32 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      <div className="ios-menu absolute bottom-full left-0 z-50 mb-2 w-32 overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                         <button
                           className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
                           onClick={() => {

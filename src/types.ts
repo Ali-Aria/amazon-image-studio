@@ -1,13 +1,16 @@
+import type { AmazonMarketplaceId } from './lib/amazonMarketplaces'
+
 // ===== 设置 =====
 
 export type ApiMode = 'images' | 'responses' | 'chat'
+export type ApiSetupMode = 'standard' | 'single-connection'
 export type AppMode = 'gallery' | 'agent'
-export type TaskWorkflow = 'instant-retail' | 'amazon-listing' | 'amazon-aplus' | 'gallery' | 'agent' | 'unknown'
+export type TaskWorkflow = 'instant-retail' | 'amazon-listing' | 'amazon-aplus' | 'seedream-edit' | 'gallery' | 'agent' | 'unknown'
 export type TaskAspect = 'square' | 'landscape' | 'portrait'
 export type HistoryWorkflowFilter = 'all' | TaskWorkflow
 export type HistoryAspectFilter = 'all' | TaskAspect
 export type ReferenceImageEditAction = 'ask' | 'replace-reference' | 'add-mask'
-export type BuiltInApiProvider = 'openai' | 'fal'
+export type BuiltInApiProvider = 'openai' | 'fal' | 'volcengine'
 export type ApiProvider = BuiltInApiProvider | string
 export type CustomProviderTemplate = 'http-image'
 export const DEFAULT_STREAM_PARTIAL_IMAGES = 1
@@ -101,7 +104,10 @@ export interface AppSettings {
   agentWebSearch: boolean
   profiles: ApiProfile[]
   activeProfileId: string
+  /** Seedream Pro 图片编辑页专用配置；不会改变首页活动生图配置 */
+  seedreamEditorProfileId: string
   amazonPlannerProfileId: string
+  apiSetupMode: ApiSetupMode
   customStyleReferences: CustomStyleReference[]
 }
 
@@ -355,6 +361,45 @@ export interface RetailProject {
   updatedAt: number
 }
 
+export type SeedreamEditorResolution = '2k' | '4k'
+export type ImageEditorEngine = 'home' | 'seedream'
+export type SeedreamAnnotationKind = 'brush' | 'rectangle' | 'ellipse' | 'arrow'
+
+export interface SeedreamAnnotationPoint {
+  /** 相对原图宽高归一化后的坐标 */
+  x: number
+  y: number
+}
+
+export interface SeedreamAnnotation {
+  id: string
+  kind: SeedreamAnnotationKind
+  color: string
+  /** 相对原图短边归一化后的线宽 */
+  width: number
+  points: SeedreamAnnotationPoint[]
+}
+
+export interface SeedreamEditorDraft {
+  engine: ImageEditorEngine
+  sourceImageId: string | null
+  referenceImageIds: string[]
+  instruction: string
+  annotations: SeedreamAnnotation[]
+  resolution: SeedreamEditorResolution
+  latestTaskId: string | null
+  updatedAt: number
+}
+
+export interface TaskImageEditContext {
+  /** 编辑器使用的配置角色；旧任务缺失时根据任务服务商推断 */
+  engine?: ImageEditorEngine
+  sourceImageId: string
+  visualGuideImageId?: string | null
+  referenceImageIds: string[]
+  userInstruction: string
+}
+
 // ===== 任务记录 =====
 
 export type TaskStatus = 'running' | 'done' | 'error'
@@ -423,12 +468,15 @@ export interface TaskRecord {
   agentBatchCallId?: string
   /** Agent 图像工具实际动作 */
   agentToolAction?: 'generate' | 'edit' | 'auto' | string
+  /** 图片编辑任务中的输入角色与原始用户要求 */
+  imageEditContext?: TaskImageEditContext
   /** 历史筛选分类元数据；旧任务可为空并由前端推断 */
   category?: {
     productTitle?: string
     workflow?: TaskWorkflow
     amazonSlot?: string
     aPlusType?: 'standard' | 'standard-large' | 'premium' | 'mobile'
+    marketplaceId?: AmazonMarketplaceId
     styleReferenceImageId?: string
     retailProjectId?: string
     retailSlot?: RetailSlotId
@@ -529,6 +577,7 @@ export interface AmazonPlannerSession {
   id: string
   title: string
   mode: 'listing' | 'aplus'
+  marketplaceId?: AmazonMarketplaceId
   aPlusType: 'standard' | 'standard-large' | 'premium' | 'mobile'
   resolution: '2k' | '4k'
   listingImageCount?: number

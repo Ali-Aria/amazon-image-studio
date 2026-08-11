@@ -54,26 +54,6 @@ export function normalizeBaseUrl(baseUrl: string): string {
   }
 }
 
-export function normalizeDevProxyConfig(input: unknown): DevProxyConfig | null {
-  if (!input || typeof input !== 'object') return null
-
-  const record = input as Record<string, unknown>
-  const target = normalizeBaseUrl(typeof record.target === 'string' ? record.target : '')
-  if (!target) return null
-
-  const rawPrefix = typeof record.prefix === 'string' ? record.prefix : DEFAULT_PROXY_PREFIX
-  const trimmedPrefix = rawPrefix.trim().replace(/^\/+/, '').replace(/\/+$/, '')
-  const prefix = trimmedPrefix ? `/${trimmedPrefix}` : DEFAULT_PROXY_PREFIX
-
-  return {
-    enabled: Boolean(record.enabled),
-    prefix,
-    target,
-    changeOrigin: record.changeOrigin !== false,
-    secure: Boolean(record.secure),
-  }
-}
-
 export function buildApiUrl(
   baseUrl: string,
   path: string,
@@ -97,16 +77,8 @@ export function buildApiUrl(
   return normalizedBaseUrl ? `${normalizedBaseUrl}/${apiPath}` : `/${apiPath}`
 }
 
-export function resolveDevProxyConfig(input: unknown, isDev: boolean): DevProxyConfig | null {
-  if (!isDev) return null
-  return normalizeDevProxyConfig(input)
-}
-
 export function readClientDevProxyConfig(): DevProxyConfig | null {
-  return resolveDevProxyConfig(
-    typeof __DEV_PROXY_CONFIG__ === 'undefined' ? null : __DEV_PROXY_CONFIG__,
-    import.meta.env.DEV,
-  )
+  return null
 }
 
 export function isApiProxyAvailable(proxyConfig: DevProxyConfig | null = readClientDevProxyConfig()): boolean {

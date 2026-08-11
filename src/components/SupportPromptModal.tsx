@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { CloseIcon } from './icons'
+import { Sheet } from './Sheet'
 
 export default function SupportPromptModal() {
   const supportPromptOpen = useStore((s) => s.supportPromptOpen)
@@ -24,16 +25,12 @@ export default function SupportPromptModal() {
   if (!visible) return null
 
   return createPortal(
-    <div
-      data-no-drag-select
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
-      onClick={dismissSupportPrompt}
+    <Sheet
+      onClose={dismissSupportPrompt}
+      rootClassName="z-[70]"
+      className="flex max-w-sm flex-col p-6 pb-7 pt-8"
+      labelledBy="support-sheet-title"
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in" />
-      <div
-        className="relative z-10 w-full max-w-sm rounded-[2rem] border border-white/50 bg-white/95 p-6 pb-7 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex flex-col"
-        onClick={(event) => event.stopPropagation()}
-      >
         <div className="absolute right-4 top-4">
           <button
             type="button"
@@ -53,7 +50,7 @@ export default function SupportPromptModal() {
           </div>
         </div>
 
-        <h3 className="mb-3 text-center text-xl font-bold text-gray-800 dark:text-gray-100">
+        <h3 id="support-sheet-title" className="mb-3 text-center text-xl font-semibold text-gray-900 dark:text-gray-100">
           感谢使用 🎉
         </h3>
 
@@ -89,8 +86,7 @@ export default function SupportPromptModal() {
             反馈问题
           </a>
         </div>
-      </div>
-    </div>,
+    </Sheet>,
     document.body,
   )
 }

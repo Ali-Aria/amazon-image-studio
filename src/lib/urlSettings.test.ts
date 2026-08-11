@@ -5,6 +5,7 @@ import {
   createDefaultOpenAIProfile,
   DEFAULT_IMAGES_MODEL,
   DEFAULT_SETTINGS,
+  getAmazonPlannerProfile,
   normalizeSettings,
 } from './apiProfiles'
 import { buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './urlSettings'
@@ -19,12 +20,37 @@ describe('URL settings params', () => {
 
     expect(next.profiles).toHaveLength(3)
     expect(next.activeProfileId).not.toBe(current.activeProfileId)
+    expect(next.apiSetupMode).toBe('standard')
     expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
       name: 'URL 参数配置',
       provider: 'openai',
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'test-key',
       model: DEFAULT_IMAGES_MODEL,
+    })
+    expect(getAmazonPlannerProfile(next)).toMatchObject({
+      baseUrl: DEFAULT_SETTINGS.baseUrl,
+      apiKey: '',
+    })
+  })
+
+  it('restores single-connection planner metadata from explicit URL params', () => {
+    const current = normalizeSettings(DEFAULT_SETTINGS)
+    const next = normalizeSettings({
+      ...current,
+      ...buildSettingsFromUrlParams(current, new URLSearchParams('apiUrl=https://api.example.com/v1&apiKey=test-key&apiSetupMode=single-connection&plannerApiMode=chat&plannerModel=planner-chat-model')),
+    })
+
+    expect(next.apiSetupMode).toBe('single-connection')
+    expect(next.profiles.find((profile) => profile.id === next.amazonPlannerProfileId)).toMatchObject({
+      apiMode: 'chat',
+      model: 'planner-chat-model',
+    })
+    expect(getAmazonPlannerProfile(next)).toMatchObject({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'test-key',
+      apiMode: 'chat',
+      model: 'planner-chat-model',
     })
   })
 
@@ -44,7 +70,7 @@ describe('URL settings params', () => {
     })
   })
 
-  it('creates Chat Completions profile from URL params', () => {
+  it('imports a Chat Completions URL into the planner role', () => {
     const current = normalizeSettings(DEFAULT_SETTINGS)
     const next = normalizeSettings({
       ...current,
@@ -52,11 +78,43 @@ describe('URL settings params', () => {
     })
 
     expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
+      apiMode: 'images',
+    })
+    expect(getAmazonPlannerProfile(next)).toMatchObject({
       provider: 'openai',
       baseUrl: 'https://api.deepseek.com',
       apiKey: 'deepseek-key',
       model: DEFAULT_CHAT_MODEL,
       apiMode: 'chat',
+    })
+  })
+
+  it('imports a text profile from a settings payload into the planner role', () => {
+    const current = normalizeSettings(DEFAULT_SETTINGS)
+    const params = new URLSearchParams()
+    params.set('settings', JSON.stringify({
+      profiles: [createDefaultOpenAIProfile({
+        id: 'imported-planner',
+        name: 'Imported Planner',
+        baseUrl: 'https://planner.example.com/v1',
+        apiKey: 'planner-key',
+        apiMode: 'responses',
+        model: 'planner-model',
+      })],
+    }))
+
+    const next = normalizeSettings({
+      ...current,
+      ...buildSettingsFromUrlParams(current, params),
+    })
+
+    expect(next.activeProfileId).toBe(current.activeProfileId)
+    expect(getAmazonPlannerProfile(next)).toMatchObject({
+      id: 'imported-planner',
+      baseUrl: 'https://planner.example.com/v1',
+      apiKey: 'planner-key',
+      apiMode: 'responses',
+      model: 'planner-model',
     })
   })
 
@@ -81,14 +139,12 @@ describe('URL settings params', () => {
     expect(next.activeProfileId).toBe(existingProfile.id)
   })
 
-  it('creates a separate profile when URL streaming options differ', () => {
+  it('ignores deprecated URL streaming options when matching profiles', () => {
     const existingProfile = createDefaultOpenAIProfile({
       id: 'existing-openai',
       name: 'Existing OpenAI',
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'test-key',
-      streamImages: true,
-      streamPartialImages: 0,
     })
     const current = normalizeSettings({
       ...DEFAULT_SETTINGS,
@@ -101,14 +157,14 @@ describe('URL settings params', () => {
     })
     const activeProfile = next.profiles.find((profile) => profile.id === next.activeProfileId)
 
-    expect(next.profiles).toHaveLength(3)
-    expect(next.activeProfileId).not.toBe(existingProfile.id)
+    expect(next.profiles).toHaveLength(2)
+    expect(next.activeProfileId).toBe(existingProfile.id)
     expect(activeProfile).toMatchObject({
       provider: 'openai',
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'test-key',
-      streamImages: true,
-      streamPartialImages: 3,
+      streamImages: false,
+      streamPartialImages: 1,
     })
   })
 
@@ -133,7 +189,7 @@ describe('URL settings params', () => {
   })
 
   it('clears known URL setting params without touching unrelated params', () => {
-    const params = new URLSearchParams('apiUrl=https://api.example.com/v1&apiKey=test-key&model=test-model&streamImages=false&streamPartialImages=3&foo=bar')
+    const params = new URLSearchParams('apiUrl=https://api.example.com/v1&apiKey=test-key&model=test-model&streamImages=false&streamPartialImages=3&apiSetupMode=single-connection&plannerApiMode=chat&plannerModel=test-planner&foo=bar')
 
     expect(hasUrlSettingParams(params)).toBe(true)
     clearUrlSettingParams(params)

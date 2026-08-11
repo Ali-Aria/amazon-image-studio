@@ -3,11 +3,20 @@ import { useStore } from '../store'
 import { useTooltip } from '../hooks/useTooltip'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
-import { InstallIcon, SettingsIcon } from './icons'
+import HelpModal from './HelpModal'
+import { HelpCircleIcon, InstallIcon, SettingsIcon } from './icons'
+import { Button } from './Button'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
+type AppView = 'home' | 'editor' | 'tagger'
+
+type HeaderProps = {
+  activeView: AppView
+  onNavigate: (view: AppView) => void
 }
 
 function isInstalledPwa() {
@@ -15,13 +24,15 @@ function isInstalledPwa() {
   return window.matchMedia('(display-mode: standalone)').matches || nav.standalone === true
 }
 
-export default function Header() {
+export default function Header({ activeView, onNavigate }: HeaderProps) {
   const setShowSettings = useStore((s) => s.setShowSettings)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
+  const [showHelp, setShowHelp] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [isPwaInstalled, setIsPwaInstalled] = useState(isInstalledPwa)
 
   const installTooltip = useTooltip()
+  const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
 
   useEffect(() => {
@@ -83,29 +94,70 @@ export default function Header() {
 
   return (
     <>
-      <header data-no-drag-select className="safe-area-top fixed top-0 left-0 right-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur">
-        <div className="safe-area-x safe-header-inner mx-auto flex max-w-7xl items-center justify-between">
-          <h1 className="min-w-0 pr-3">
-            <span className="text-[17px] font-bold tracking-tight text-[#172033] transition-colors hover:text-gray-600 sm:text-lg">
-              即时零售图片工作台
-            </span>
-          </h1>
+      <header data-no-drag-select className={`${activeView === 'home' ? 'retail-app-header ' : ''}safe-area-top fixed left-0 right-0 top-0 z-40 border-b border-black/[0.06] bg-white/75 shadow-[0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-2xl dark:border-white/[0.08] dark:bg-gray-950/80 dark:shadow-none`}>
+        <div className="safe-area-x safe-header-inner mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+            <h1 className="hidden min-w-0 min-[520px]:block">
+              <button
+                type="button"
+                onClick={() => onNavigate('home')}
+                className="truncate text-[17px] font-semibold tracking-[-0.025em] text-gray-900 transition-colors hover:text-gray-600 dark:text-gray-100 dark:hover:text-gray-300 sm:text-lg"
+              >
+                即时零售图片工作台
+              </button>
+            </h1>
+            <nav className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onNavigate('home')}
+                data-nav-active={activeView === 'home'}
+                className={`h-8 rounded-[10px] px-2.5 text-xs font-semibold transition sm:px-3 ${activeView === 'home' ? 'bg-gray-900 text-white shadow-sm dark:bg-white dark:text-gray-900' : 'text-gray-500 hover:bg-black/[0.05] hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'}`}
+              >
+                工作台
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('editor')}
+                data-nav-active={activeView === 'editor'}
+                className={`h-8 rounded-[10px] px-2.5 text-xs font-semibold transition sm:px-3 ${activeView === 'editor' ? 'bg-[hsl(var(--primary))] text-white shadow-sm' : 'text-gray-500 hover:bg-black/[0.05] hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'}`}
+              >
+                图片编辑
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('tagger')}
+                data-nav-active={activeView === 'tagger'}
+                className={`h-8 rounded-[10px] px-2.5 text-xs font-semibold transition sm:px-3 ${activeView === 'tagger' ? 'bg-[hsl(var(--primary))] text-white shadow-sm' : 'text-gray-500 hover:bg-black/[0.05] hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'}`}
+              >
+                AI 人物打标
+              </button>
+            </nav>
+          </div>
           <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setShowSettings(true, 'about')}
+              className="hidden h-8 whitespace-nowrap rounded-[10px] px-2 text-[11px] font-semibold text-[hsl(var(--primary))] transition hover:bg-[hsl(var(--ios-blue-tint))] active:translate-y-px sm:px-2.5 sm:text-xs min-[620px]:inline-flex min-[620px]:items-center"
+            >
+              开源声明
+            </button>
             {!isPwaInstalled && (
               <div
                 className="relative"
                 {...installTooltip.handlers}
               >
-                <button
+                <Button
                   onClick={() => {
                     dismissAllTooltips()
                     handleInstallClick()
                   }}
-                  className="rounded-lg p-2 transition-colors hover:bg-gray-100"
+                  variant="plain"
+                  size="icon"
+                  className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                   aria-label="安装为应用"
                 >
-                  <InstallIcon className="h-5 w-5 text-gray-600" />
-                </button>
+                  <InstallIcon className="h-5 w-5" />
+                </Button>
                 <ViewportTooltip visible={installTooltip.visible} className="whitespace-nowrap">
                   安装为应用
                 </ViewportTooltip>
@@ -113,15 +165,37 @@ export default function Header() {
             )}
             <div
               className="relative"
+              {...helpTooltip.handlers}
+            >
+              <Button
+                onClick={() => {
+                  dismissAllTooltips()
+                  setShowHelp(true)
+                }}
+                variant="plain"
+                size="icon"
+                className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+                aria-label="操作指南"
+              >
+                <HelpCircleIcon className="h-5 w-5" />
+              </Button>
+              <ViewportTooltip visible={helpTooltip.visible} className="whitespace-nowrap">
+                操作指南
+              </ViewportTooltip>
+            </div>
+            <div
+              className="relative"
               {...settingsTooltip.handlers}
             >
-              <button
+              <Button
                 onClick={() => setShowSettings(true)}
-                className="rounded-lg p-2 transition-colors hover:bg-gray-100"
+                variant="plain"
+                size="icon"
+                className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                 aria-label="设置"
               >
-                <SettingsIcon className="h-5 w-5 text-gray-600" />
-              </button>
+                <SettingsIcon className="h-5 w-5" />
+              </Button>
               <ViewportTooltip visible={settingsTooltip.visible} className="whitespace-nowrap">
                 设置
               </ViewportTooltip>
@@ -133,6 +207,7 @@ export default function Header() {
       <div className="safe-area-top invisible pointer-events-none" aria-hidden="true">
         <div className="safe-header-inner" />
       </div>
+      {showHelp && <HelpModal appMode="gallery" onClose={() => setShowHelp(false)} />}
     </>
   )
 }
