@@ -59,6 +59,14 @@ function buildLockedList(facts: Record<string, string>) {
   return parts.join(', ')
 }
 
+/** AVOID 行的上限。超过这个长度模型的注意力会被稀释，但**被砍掉的必须是最不要紧的那部分** */
+const MAX_SLOT_NEGATIVES = 34
+
+/**
+ * 拼接顺序即优先级：合规红线 → 类目禁令 → 件数 → 用户禁用元素 → 逐位负面。
+ * 顺序反了会出静默事故：把合规词排在尾部再截断，等于每条 prompt 都悄悄丢掉
+ * 「其他平台标识」这类红线词，以及知识库刚写好的全部类目禁令和用户自己填的禁用元素。
+ */
 function buildSlotNegatives(
   slotNegatives: string[],
   unitNegatives: string[],
@@ -67,14 +75,35 @@ function buildSlotNegatives(
 ) {
   const custom = product.forbidden.trim()
   const merged = [
-    ...slotNegatives,
-    ...unitNegatives,
     ...RETAIL_SHARED_NEGATIVES,
     // 知识库的中文 forbidden 只给人看；只有英文镜像才允许进模型
     ...(archetype.forbidden_en ?? []),
+    ...unitNegatives,
     ...(custom && !containsCjk(custom) ? [custom] : []),
+    ...slotNegatives,
   ]
-  return [...new Set(merged.map((value) => value.trim().toLowerCase()).filter(Boolean))].slice(0, 26)
+  return [...new Set(merged.map((value) => value.trim().toLowerCase()).filter(Boolean))].slice(0, MAX_SLOT_NEGATIVES)
+}
+
+/** 用户补充要求里出现这些词，等于把违禁元素当正向指令喂给模型 */
+const OVERRIDE_BANNED = /price|coupon|discount|qr\s*code|watermark|phone|contact|ribbon|bow|gift box|sticker|badge|logo|certificat|award|medal/i
+
+export interface RetailOverrideCheck {
+  value: string
+  rejectedReason: 'cjk' | 'banned' | null
+}
+
+/**
+ * 用户的「补充生成要求」原样拼进 prompt 是个口子：写中文会打破纯 ASCII 不变量，
+ * 写「加条丝带」「加个价签」则会以正向指令的身份压过白底与合规守卫。
+ * 这里 fail-closed——宁可整条不用，也不把它送进模型。
+ */
+export function checkRetailPromptOverride(value: string): RetailOverrideCheck {
+  const trimmed = value.trim()
+  if (!trimmed) return { value: '', rejectedReason: null }
+  if (containsCjk(trimmed)) return { value: '', rejectedReason: 'cjk' }
+  if (OVERRIDE_BANNED.test(trimmed)) return { value: '', rejectedReason: 'banned' }
+  return { value: trimmed, rejectedReason: null }
 }
 
 export const RETAIL_BASE_SLOT_IDS: RetailSlotId[] = [
@@ -197,6 +226,7 @@ export function createRetailImagePlan(
   const unitCount = parseRetailUnitCount(product.saleSpecification, product.saleUnit)
   const unit = buildRetailUnitClause(unitCount)
   const lockedList = buildLockedList(facts)
+  const override = checkRetailPromptOverride(product.customPrompt)
 
   const basePlans = RETAIL_BASE_SLOT_IDS.map((id, index) => {
     const definition = slotDefinition(id, archetype, product)
@@ -231,7 +261,7 @@ export function createRetailImagePlan(
         cameraAngle: subjectRules?.camera_angle_en ?? 'eye level',
         sceneSurface: subjectRules?.scene_surfaces?.join(' or ') ?? 'a plain everyday surface',
         specFace: subjectRules?.text_surfaces?.join(' or ') ?? 'the face that carries the printed specification',
-        slotOverride: product.customPrompt.trim(),
+        slotOverride: override.value,
         negatives: buildSlotNegatives(recipe.slotNegatives, unit.negatives, product, archetype),
       }),
       // 逐位负面词已经作为 AVOID 行渲染进 prompt 本体；这里保留字段只为兼容旧数据，
@@ -254,7 +284,7 @@ export function createRetailImagePlan(
   // 这一位同样只吃 lighting 通道：礼赠风格词里的「丝带」会和「不得凭空造礼盒丝带」直接打架。
   const specialPrompt = special.processingMode === 'ai-preserve'
     ? renderRetailSlotPrompt(specialRecipe, {
-        name: toAsciiSubject(archetype, unitCount.unitNoun),
+        name: toAsciiSubject(archetype, unitCount.count === null ? 'unit' : unitCount.unitNoun),
         facts: factBlock,
         safeBox: computeSlotSafeBox(platformPresetId, specialId, specialGenerationSize),
         lockedList: `${lockedList}, and the exact shape, opening structure, printing, colour and closure of the outer package from [image 2]`,
@@ -268,7 +298,7 @@ export function createRetailImagePlan(
         cameraAngle: 'slightly raised',
         sceneSurface: '',
         specFace: '',
-        slotOverride: product.customPrompt.trim(),
+        slotOverride: override.value,
         negatives: buildSlotNegatives(specialRecipe.slotNegatives, unit.negatives, product, archetype),
       })
     : ''

@@ -28,6 +28,9 @@ export default function RetailImageCard({ plan, slot, imageSrc, disabled, onGene
       : plan.processingMode === 'ai-preserve'
         ? 'AI 保真合成'
         : plan.composeMode === 'none' ? 'AI 场景' : '精准排版'
+  const [objectiveBase, ...objectiveRest] = plan.objective.split('；类目建议：')
+  const categoryHint = objectiveRest.join('；类目建议：').trim()
+
   return (
     <article className={`retail-image-card status-${slot.status} ${specialUnavailable ? 'is-unavailable' : ''}`}>
       <div className="retail-image-preview">
@@ -54,7 +57,10 @@ export default function RetailImageCard({ plan, slot, imageSrc, disabled, onGene
           </div>
           <span className={`retail-status ${specialUnavailable ? 'status-needs' : `status-${slot.status}`}`}>{statusLabel}</span>
         </div>
-        <p>{plan.objective.split('；')[0]}</p>
+        {/* 曾经写成 split('；')[0]，把「类目建议：…」整段吞掉——23 个类目共 184 条方向
+            一条都显示不出来。改成拆开显示，类目那半句才是这一位真正的差异所在。 */}
+        <p title={plan.objective}>{objectiveBase}</p>
+        {categoryHint && <p className="retail-image-card-hint" title={categoryHint}>{categoryHint}</p>}
         <div className="retail-image-card-actions">
           <span>{actionLabel}</span>
           <button

@@ -8,7 +8,7 @@ import {
 } from './retailKnowledge'
 
 const knowledge = JSON.parse(
-  readFileSync(new URL('../../public/knowledge/retail-category-knowledge.v1.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../public/knowledge/retail-category-knowledge.v2.json', import.meta.url), 'utf8'),
 ) as RetailKnowledgeData
 
 describe('retail category knowledge', () => {

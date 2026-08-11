@@ -8,8 +8,13 @@ import type { RetailSafeBox } from './retailSafeBox'
  */
 export type RetailCreationBudget = 'P1' | 'P2' | 'P3'
 
-/** 风格双通道：白底与规格位只吃打光，场景位才吃道具与环境 */
-export type RetailStyleChannel = 'lighting' | 'lighting+set'
+/**
+ * 风格三通道：
+ * neutral 连打光都不吃（白底主图/正面图/规格图是平台核对用的「审核三张」，
+ *   任何色偏都会和同一条 prompt 里的 pure white / no colour cast 打架）；
+ * lighting 只吃光与色调；lighting+set 才吃道具与环境。
+ */
+export type RetailStyleChannel = 'neutral' | 'lighting' | 'lighting+set'
 
 export interface RetailSlotRecipe {
   slotId: RetailSlotId
@@ -68,7 +73,7 @@ export const RETAIL_SLOT_RECIPES: Record<RetailSlotId, RetailSlotRecipe> = {
   '01-main': {
     slotId: '01-main',
     budget: 'P1',
-    styleChannel: 'lighting',
+    styleChannel: 'neutral',
     reservesCopyArea: false,
     task: 'one upload-ready pure-white-background main image of {{name}} for an instant-retail listing',
     framing: 'straight-on eye-level packshot, 85-100mm equivalent, azimuth 0 degrees, tilt 0-5 degrees, no perspective distortion, the complete product in frame and never cropped',
@@ -81,7 +86,7 @@ export const RETAIL_SLOT_RECIPES: Record<RetailSlotId, RetailSlotRecipe> = {
   '02-front': {
     slotId: '02-front',
     budget: 'P1',
-    styleChannel: 'lighting',
+    styleChannel: 'neutral',
     reservesCopyArea: false,
     task: 'one front-facing product image of {{name}} that lets a reviewer read the brand and the pack front exactly as printed',
     framing: 'the lens axis is perpendicular to the main label plane, 50-85mm equivalent, azimuth 0 degrees, tilt 8-12 degrees, rotation 5 degrees or less, the complete product in frame',
@@ -133,7 +138,7 @@ export const RETAIL_SLOT_RECIPES: Record<RetailSlotId, RetailSlotRecipe> = {
   '06-specification': {
     slotId: '06-specification',
     budget: 'P1',
-    styleChannel: 'lighting',
+    styleChannel: 'neutral',
     reservesCopyArea: true,
     task: 'one clean image of {{name}} turned so that {{specFace}} faces the lens, sitting to the right of an empty area that a specification panel will later cover',
     framing: 'orthographic eye-level view, azimuth 0 degrees, tilt 0-5 degrees, 85-100mm equivalent, the complete product in frame',
@@ -213,7 +218,9 @@ function fill(template: string, context: RetailPromptContext) {
 export function renderRetailSlotPrompt(recipe: RetailSlotRecipe, context: RetailPromptContext): string {
   const style = recipe.styleChannel === 'lighting+set'
     ? [context.styleLighting, context.styleSet].filter(Boolean).join(' ')
-    : context.styleLighting
+    : recipe.styleChannel === 'lighting'
+      ? context.styleLighting
+      : ''
   const { safeBox } = context
   const lines: Array<string | null> = [
     `TASK: ${fill(recipe.task, context)}.`,
@@ -221,7 +228,7 @@ export function renderRetailSlotPrompt(recipe: RetailSlotRecipe, context: Retail
     `FACTS (for your verification only, never render any of this as text): ${context.facts}.`,
     context.categoryDirection ? `DIRECTION: ${context.categoryDirection}` : null,
     `FRAMING: ${fill(recipe.framing, context)}.`,
-    `LAYOUT: the product bounding box spans x ${safeBox.x0}%-${safeBox.x1}% and y ${safeBox.y0}%-${safeBox.y1}% of the frame.`,
+    `LAYOUT: the product bounding box fits inside x ${safeBox.x0}%-${safeBox.x1}% and y ${safeBox.y0}%-${safeBox.y1}% of the frame, keeping the real proportions of the package.`,
     recipe.reservesCopyArea
       ? `RESERVED: everything left of x ${safeBox.staticZoneRight}% stays empty, low-detail and lighter than RGB 235. No part of the product, no prop and no shadow enters it.`
       : null,

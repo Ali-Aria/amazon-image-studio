@@ -59,7 +59,7 @@
 - 京东到家：46 个一级类目、2,750 条完整类目路径
 - 归纳为 23 种图片策划原型，一级类目全部有映射
 
-运行时使用精简知识文件 [`public/knowledge/retail-category-knowledge.v1.json`](public/knowledge/retail-category-knowledge.v1.json)，支持完整类目搜索、类目专属资料字段、场景建议和安全回退。原始 77MB 工作簿不打包进前端。
+运行时使用精简知识文件 [`public/knowledge/retail-category-knowledge.v2.json`](public/knowledge/retail-category-knowledge.v2.json)，支持完整类目搜索、类目专属资料字段、场景建议和安全回退。原始 77MB 工作簿不打包进前端。
 
 完整扫描脚本、19MB 审计明细和统计摘要保存在本机工作区的 `research/product-pool-2026-08-11/`，前端仓库只携带运行所需的精简知识文件。
 

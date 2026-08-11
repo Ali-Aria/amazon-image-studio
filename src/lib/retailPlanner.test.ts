@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RetailArchetype, RetailProduct } from '../types'
-import { createRetailImagePlan, RETAIL_BASE_SLOT_IDS, RETAIL_SLOT_IDS } from './retailPlanner'
+import { checkRetailPromptOverride, createRetailImagePlan, RETAIL_BASE_SLOT_IDS, RETAIL_SLOT_IDS } from './retailPlanner'
 import { containsCjk } from './retailSlotRecipes'
 import { createEmptyRetailProduct } from './retailProduct'
 import { evaluateRetailSpecialImage } from './retailSpecialImage'
@@ -90,7 +90,7 @@ describe('seven-image retail plan', () => {
     // 景别/机位/构图词必须真实存在，而不是只靠一句目标句区分
     for (const prompt of basePrompts) {
       expect(prompt).toMatch(/FRAMING: .+/)
-      expect(prompt).toMatch(/LAYOUT: the product bounding box spans x \d+%-\d+% and y \d+%-\d+%/)
+      expect(prompt).toMatch(/LAYOUT: the product bounding box fits inside x \d+%-\d+% and y \d+%-\d+%/)
       expect(prompt).toMatch(/RESTATE: /)
     }
     expect(plan.find((item) => item.id === '04-detail')!.prompt).toContain('macro')
@@ -108,13 +108,50 @@ describe('seven-image retail plan', () => {
     expect(reserved('01-main')).toBe(false)
   })
 
+  it('合规红线与类目禁令永远排在 AVOID 行前面，被截断的只能是逐位补充词', () => {
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'clean-retail', evaluateSpecial())
+
+    for (const item of plan.filter((entry) => entry.prompt)) {
+      const avoid = item.prompt.split('AVOID: ')[1].split('\n')[0]
+      // 旧实现把 shared 排在逐位负面之后再 slice，导致每条 prompt 都悄悄丢掉
+      // 「其他平台标识」这类红线词，以及知识库刚写好的全部类目禁令
+      expect(avoid, item.id).toContain('other platform logo')
+      expect(avoid, item.id).toContain('watermark')
+      expect(avoid, item.id).toContain('invented product fact')
+    }
+  })
+
+  it('用户补充要求含中文或违禁词时整条不进 prompt', () => {
+    expect(checkRetailPromptOverride('加一条丝带')).toMatchObject({ value: '', rejectedReason: 'cjk' })
+    expect(checkRetailPromptOverride('add a red gift ribbon')).toMatchObject({ value: '', rejectedReason: 'banned' })
+    expect(checkRetailPromptOverride('keep the cap facing left')).toMatchObject({ value: 'keep the cap facing left', rejectedReason: null })
+
+    const risky = { ...product, customPrompt: '加一条丝带，背景改成深色木纹' }
+    const plan = createRetailImagePlan(risky, archetype, 'meituan-square', 'clean-retail', evaluateSpecial())
+    for (const item of plan.filter((entry) => entry.prompt)) {
+      expect(containsCjk(item.prompt), item.id).toBe(false)
+      expect(item.prompt, item.id).not.toContain('NOTE:')
+    }
+  })
+
+  it('审核三张不吃带色偏的风格打光', () => {
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'night-delivery', evaluateSpecial())
+    const light = (id: string) => plan.find((item) => item.id === id)!.prompt.split('LIGHT: ')[1].split('\n')[0]
+
+    // 「夜间即时」的冷调打光会和同一条 prompt 里的 pure white / no colour cast 打架
+    expect(light('01-main')).not.toContain('Cool evening key light')
+    expect(light('02-front')).not.toContain('Cool evening key light')
+    expect(light('06-specification')).not.toContain('Cool evening key light')
+    expect(light('05-scene')).toContain('Cool evening key light')
+  })
+
   it('白底主图不会被礼赠风格污染成有道具的画面', () => {
     const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'qixi-gifting', evaluateSpecial())
     const main = plan.find((item) => item.id === '01-main')!.prompt
     const scene = plan.find((item) => item.id === '05-scene')!.prompt
 
     expect(main).toContain('pure white RGB 255,255,255')
-    expect(main).not.toContain('Qixi gifting surroundings')
+    expect(main).not.toContain('Qixi gifting')
     // 场景位才吃道具通道
     expect(scene).toContain('Qixi gifting surroundings')
   })

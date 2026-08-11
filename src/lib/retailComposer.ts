@@ -160,9 +160,13 @@ function drawDetailCopy(ctx: CanvasRenderingContext2D, image: HTMLImageElement, 
   ctx.fillStyle = '#FFCC33'
   ctx.fillRect(pad, cursorY, Math.round(width * 0.12), 6)
   cursorY += Math.round(width * 0.075)
-  for (const line of spec.lines.filter((value) => value !== spec.title).slice(0, 10)) {
+  // 与 drawPanelCopy 同理：写死 slice(0,10) 会在画布下方还剩 386px 时静默丢掉已确认信息
+  const detailLines = spec.lines.filter((value) => value !== spec.title)
+  const detailStep = Math.round(width * 0.065)
+  const detailCapacity = Math.max(1, Math.floor((height - Math.round(height * 0.04) - cursorY) / detailStep) + 1)
+  for (const line of detailLines.slice(0, detailCapacity)) {
     drawTextLine(ctx, line, pad, cursorY, width - pad * 2, Math.round(width * 0.034), '#30384A', 600)
-    cursorY += Math.round(width * 0.065)
+    cursorY += detailStep
   }
 }
 
