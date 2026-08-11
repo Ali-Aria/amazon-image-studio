@@ -1,6 +1,8 @@
 import { strToU8, zipSync } from 'fflate'
 import type { RetailProject, RetailSlotId } from '../types'
 import type { RetailQualityReport } from './retailQuality'
+import { RETAIL_BASE_SLOT_IDS } from './retailPlanner'
+import { RETAIL_SPECIAL_IMAGE_LABELS } from './retailSpecialImage'
 
 const SLOT_FILE_NAMES: Record<RetailSlotId, string> = {
   '01-main': '01_主图',
@@ -27,19 +29,40 @@ export function buildRetailExportManifest(
   project: RetailProject,
   qualityReports: Partial<Record<RetailSlotId, RetailQualityReport>>,
 ) {
-  const complete = project.slots.every((slot) => slot.status === 'done' && Boolean(slot.composedImageId || slot.outputImageId))
-  const blocked = Object.values(qualityReports).some((report) => report?.status === 'blocked')
+  const baseSlots = RETAIL_BASE_SLOT_IDS.map((slotId) => project.slots.find((slot) => slot.slotId === slotId))
+  const complete = baseSlots.every((slot) => slot?.status === 'done' && Boolean(slot.composedImageId || slot.outputImageId))
+  const blocked = RETAIL_BASE_SLOT_IDS.some((slotId) => qualityReports[slotId]?.status === 'blocked')
+  const specialPlan = project.plans.find((plan) => plan.id === '08-special')
+  const selectedType = specialPlan?.specialImageType
+    ?? (project.specialImageType === 'auto' ? null : project.specialImageType)
+  const specialLabel = selectedType ? RETAIL_SPECIAL_IMAGE_LABELS[selectedType] : '平台特殊图'
+  const trustedFactLabels = specialPlan?.copyLines.flatMap((line) => {
+    const separator = line.indexOf('｜')
+    return separator > 0 ? [line.slice(0, separator).trim()] : []
+  }) ?? []
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: new Date().toISOString(),
     exportStatus: complete && !blocked ? 'upload-ready' : 'draft',
     platformPresetId: project.platformPresetId,
     styleId: project.styleId,
     product: project.product,
     sourceImageIds: project.sourceImageIds,
+    specialImage: {
+      preferredType: project.specialImageType,
+      selectedType,
+      label: specialLabel,
+      generationEligible: specialPlan?.generationEligible ?? false,
+      processingMode: specialPlan?.processingMode ?? null,
+      requiredSourceRole: specialPlan?.requiredSourceRole ?? null,
+      sourceImageRoles: project.sourceImageRoles,
+      trustedFactLabels,
+    },
     slots: project.slots.map((slot) => ({
       ...slot,
-      fileName: `${SLOT_FILE_NAMES[slot.slotId]}.png`,
+      fileName: slot.slotId === '08-special'
+        ? `08_特殊图_${safeRetailFileSegment(specialLabel)}.png`
+        : `${SLOT_FILE_NAMES[slot.slotId]}.png`,
       quality: qualityReports[slot.slotId] ?? null,
     })),
   }
@@ -71,13 +94,24 @@ export function buildRetailProjectZip(input: {
   const identity = project.product.sku || project.product.barcode || 'NO-SKU'
   const root = `${safeRetailFileSegment(identity)}_${safeRetailFileSegment(project.product.name)}/`
   const files: Record<string, Uint8Array> = {}
+  const specialPlan = project.plans.find((plan) => plan.id === '08-special')
+  const selectedType = specialPlan?.specialImageType
+    ?? (project.specialImageType === 'auto' ? null : project.specialImageType)
+  const specialLabel = selectedType ? RETAIL_SPECIAL_IMAGE_LABELS[selectedType] : '平台特殊图'
 
   for (const slot of project.slots) {
+    if (slot.slotId === '08-special') {
+      const report = qualityReports[slot.slotId]
+      if (slot.status !== 'done' || !report || report.status === 'blocked') continue
+    }
     const imageId = [slot.composedImageId, slot.outputImageId]
       .find((candidate): candidate is string => Boolean(candidate && images[candidate]))
     if (!imageId || !images[imageId]) continue
     const decoded = decodeDataUrl(images[imageId])
-    files[`${root}${SLOT_FILE_NAMES[slot.slotId]}.${extensionForMime(decoded.mime)}`] = decoded.bytes
+    const fileName = slot.slotId === '08-special'
+      ? `08_特殊图_${safeRetailFileSegment(specialLabel)}`
+      : SLOT_FILE_NAMES[slot.slotId]
+    files[`${root}${fileName}.${extensionForMime(decoded.mime)}`] = decoded.bytes
   }
 
   files[`${root}manifest.json`] = strToU8(

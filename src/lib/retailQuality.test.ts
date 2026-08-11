@@ -72,4 +72,88 @@ describe('retail upload quality checks', () => {
 
     expect(result.findings.some((finding) => finding.code === 'visual-compliance-review')).toBe(true)
   })
+
+  it('does not block the base upload pack when an optional special image is ineligible', () => {
+    const result = evaluateRetailSlotQuality({
+      slotId: '08-special',
+      imageId: null,
+      metadata: null,
+      copyLines: [],
+      preset,
+      productValid: true,
+      special: {
+        generationEligible: false,
+        processingMode: 'deterministic',
+        specialImageType: 'dimension',
+        sourceRolePresent: true,
+        trustedFacts: {},
+      },
+    })
+
+    expect(result.status).not.toBe('blocked')
+    expect(result.findings.some((finding) => finding.code === 'missing-output')).toBe(false)
+  })
+
+  it('blocks unverified visible fields in a special image', () => {
+    const result = evaluateRetailSlotQuality({
+      slotId: '08-special',
+      imageId: 'special-a',
+      metadata: { width: 600, height: 600, bytes: 1000 },
+      copyLines: ['原产地｜法国', '净含量｜330ml'],
+      preset,
+      productValid: true,
+      special: {
+        generationEligible: true,
+        processingMode: 'deterministic',
+        specialImageType: 'product_facts',
+        sourceRolePresent: true,
+        trustedFacts: { 净含量: '330ml' },
+      },
+    })
+
+    expect(result.status).toBe('blocked')
+    expect(result.findings.some((finding) => finding.code === 'untrusted-special-copy')).toBe(true)
+  })
+
+  it('blocks authentic documents from any non-source-only processing path', () => {
+    const result = evaluateRetailSlotQuality({
+      slotId: '08-special',
+      imageId: 'document-a',
+      metadata: { width: 600, height: 600, bytes: 1000 },
+      copyLines: [],
+      preset,
+      productValid: true,
+      special: {
+        generationEligible: true,
+        processingMode: 'ai',
+        specialImageType: 'authentic_document',
+        sourceRolePresent: true,
+        trustedFacts: {},
+      },
+    })
+
+    expect(result.status).toBe('blocked')
+    expect(result.findings.some((finding) => finding.code === 'document-ai-forbidden')).toBe(true)
+  })
+
+  it('requires the selected real source role for gift, label, and document images', () => {
+    const result = evaluateRetailSlotQuality({
+      slotId: '08-special',
+      imageId: 'gift-a',
+      metadata: { width: 600, height: 600, bytes: 1000 },
+      copyLines: [],
+      preset,
+      productValid: true,
+      special: {
+        generationEligible: true,
+        processingMode: 'ai-preserve',
+        specialImageType: 'gift_pack',
+        sourceRolePresent: false,
+        trustedFacts: {},
+      },
+    })
+
+    expect(result.status).toBe('blocked')
+    expect(result.findings.some((finding) => finding.code === 'missing-special-source')).toBe(true)
+  })
 })

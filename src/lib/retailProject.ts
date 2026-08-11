@@ -11,7 +11,7 @@ import { createEmptyRetailProduct } from './retailProduct'
 
 export const RETAIL_PROJECTS_CHANGED_EVENT = 'instant-retail-projects-changed'
 
-const RETAIL_PROJECT_SLOT_IDS: RetailSlotId[] = [...RETAIL_SLOT_IDS, '08-special']
+const RETAIL_PROJECT_SLOT_IDS: RetailSlotId[] = RETAIL_SLOT_IDS
 const SOURCE_IMAGE_ROLES = new Set<RetailSourceImageRole>(['product', 'back_label', 'gift_pack', 'authentic_document'])
 const SPECIAL_IMAGE_TYPES = new Set<RetailSpecialImageType>([
   'product_facts',
