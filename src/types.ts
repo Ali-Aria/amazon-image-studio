@@ -231,13 +231,36 @@ export interface RetailSpecialImageEvaluation extends RetailSpecialImageOption {
   options: RetailSpecialImageOption[]
 }
 
+/** 类目只提供受控名词与方向，句子骨架永远来自 RETAIL_SLOT_RECIPES */
+export interface RetailSubjectRules {
+  /** 04 细节图允许 crop-in 的表面白名单，必须全是无微缩文字的表面 */
+  detail_targets?: string[]
+  /** 印有品名与规格的那一面，02 与 06 用它决定把哪面转向镜头 */
+  text_surfaces?: string[]
+  /** 05 场景图的承托面与机位 */
+  scene_surfaces?: string[]
+  camera_angle_en?: string
+  /** 只有一张正面参考图时的转角上限 */
+  rotation_cap_en?: string
+}
+
 export interface RetailArchetype {
   id: RetailArchetypeId
   label: string
   match_keywords: string[]
   required_facts: string[]
+  /**
+   * @deprecated 7 元素裸数组，按 RETAIL_SLOT_IDS 下标直取会整体错位一格
+   * （知识库那份序列里没有「核心卖点」这一位）。改用按 slotId 键控的 slot_directions。
+   */
   slot_plan: string[]
+  /** 按 slotId 键控的类目方向；zh 只进 UI，en 才进 prompt */
+  slot_directions?: Partial<Record<RetailSlotId, { zh: string; en: string }>>
+  subject_rules?: RetailSubjectRules
+  /** 中文审核规则，只给人看，绝不进模型 */
   forbidden: string[]
+  /** 英文负面镜像，只有这一份允许进模型 */
+  forbidden_en?: string[]
 }
 
 export interface RetailCategoryKnowledge {

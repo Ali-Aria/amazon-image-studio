@@ -1,5 +1,13 @@
 import type { RetailImagePlan, RetailProduct } from '../types'
 import { encodeRetailImage, type RetailEncodeTarget, type RetailEncodedImage } from './retailEncoder'
+import {
+  RETAIL_DETAIL_BAND_PCT,
+  RETAIL_PANEL_PAD_PCT,
+  RETAIL_PANEL_WIDTH_PCT,
+  RETAIL_SPECIAL_IMAGE_PAD_PCT,
+  RETAIL_SPECIAL_IMAGE_X_PCT,
+  RETAIL_SPECIAL_PANEL_WIDTH_PCT,
+} from './retailGeometry'
 
 export interface RetailCompositionSpec {
   title: string
@@ -91,8 +99,8 @@ function drawTextLine(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 }
 
 function drawPanelCopy(ctx: CanvasRenderingContext2D, spec: RetailCompositionSpec, width: number, height: number) {
-  const panelWidth = Math.round(width * 0.48)
-  const pad = Math.round(width * 0.055)
+  const panelWidth = Math.round(width * RETAIL_PANEL_WIDTH_PCT)
+  const pad = Math.round(width * RETAIL_PANEL_PAD_PCT)
   const panelX = pad
   const panelY = pad
   const panelHeight = height - pad * 2
@@ -113,20 +121,33 @@ function drawPanelCopy(ctx: CanvasRenderingContext2D, spec: RetailCompositionSpe
     drawTextLine(ctx, spec.subtitle, copyX, cursorY, maxWidth, Math.round(width * 0.032), '#687083', 500)
     cursorY += Math.round(width * 0.075)
   }
-  for (const line of spec.lines.filter((value) => value !== spec.title).slice(0, 5)) {
+  // 规划层最多给 8 条规格，写死 slice(0,5) 会静默丢掉后 3 条并在面板下方留一大片空白。
+  // 改成按面板剩余高度算能放几条、并据此收紧行距，规划多少就尽量画多少。
+  const candidates = spec.lines.filter((value) => value !== spec.title)
+  const bottomPad = Math.round(height * 0.06)
+  const available = Math.max(0, panelY + panelHeight - bottomPad - cursorY)
+  const preferredStep = Math.round(width * 0.062)
+  const minStep = Math.round(width * 0.046)
+  const capacity = Math.max(1, Math.floor(available / minStep) + 1)
+  const visible = candidates.slice(0, Math.min(candidates.length, capacity))
+  const step = visible.length > 1
+    ? Math.min(preferredStep, Math.max(minStep, Math.floor(available / (visible.length - 1))))
+    : preferredStep
+
+  for (const line of visible) {
     ctx.fillStyle = '#FF6B57'
     ctx.beginPath()
     ctx.arc(copyX + 5, cursorY - 7, 4, 0, Math.PI * 2)
     ctx.fill()
     drawTextLine(ctx, line, copyX + 18, cursorY, maxWidth - 18, Math.round(width * 0.03), '#30384A', 600)
-    cursorY += Math.round(width * 0.062)
+    cursorY += step
   }
 }
 
 function drawDetailCopy(ctx: CanvasRenderingContext2D, image: HTMLImageElement, spec: RetailCompositionSpec, width: number, height: number) {
   ctx.fillStyle = '#F6F8FA'
   ctx.fillRect(0, 0, width, height)
-  const imageHeight = Math.round(height * 0.43)
+  const imageHeight = Math.round(height * RETAIL_DETAIL_BAND_PCT)
   drawCover(ctx, image, 0, 0, width, imageHeight)
   const pad = Math.round(width * 0.07)
   let cursorY = imageHeight + Math.round(height * 0.065)
@@ -170,11 +191,11 @@ function drawSpecialCopy(
     return
   }
 
-  const imageX = Math.round(width * 0.54)
-  const imagePad = Math.round(width * 0.05)
+  const imageX = Math.round(width * RETAIL_SPECIAL_IMAGE_X_PCT)
+  const imagePad = Math.round(width * RETAIL_SPECIAL_IMAGE_PAD_PCT)
   drawContain(ctx, image, imageX, imagePad, width - imageX - imagePad, height - imagePad * 2)
 
-  const panelWidth = Math.round(width * 0.49)
+  const panelWidth = Math.round(width * RETAIL_SPECIAL_PANEL_WIDTH_PCT)
   ctx.fillStyle = '#FFFFFF'
   ctx.fillRect(0, 0, panelWidth, height)
   ctx.fillStyle = type === 'dimension' ? '#13A8A8' : '#FFCC33'

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RetailArchetype, RetailProduct } from '../types'
 import { createRetailImagePlan, RETAIL_BASE_SLOT_IDS, RETAIL_SLOT_IDS } from './retailPlanner'
+import { containsCjk } from './retailSlotRecipes'
 import { createEmptyRetailProduct } from './retailProduct'
 import { evaluateRetailSpecialImage } from './retailSpecialImage'
 
@@ -9,8 +10,19 @@ const archetype: RetailArchetype = {
   label: '酒水',
   match_keywords: ['酒'],
   required_facts: ['商品名称', '品牌', '酒精度', '净含量', '包装形态', '售卖规格', '储存方式'],
+  // 故意保留知识库里那份错位的 slot_plan：它按 RETAIL_SLOT_IDS 下标取值会把
+  // 「酒体或杯饮细节」喂给卖点位、「真实饮用场景」喂给细节位，本文件下方有断言证明
+  // 新实现已经不再消费它。
   slot_plan: ['白底主图', '瓶身与包装正面', '酒体或杯饮细节', '真实饮用场景', '礼赠或组合展示', '酒精度与规格信息', '商品详情长图'],
   forbidden: ['不得编造商品事实'],
+  forbidden_en: ['invented product fact'],
+  subject_rules: {
+    detail_targets: ['the cap and seal', 'the embossed shoulder'],
+    text_surfaces: ['the front label'],
+    scene_surfaces: ['a chilled bar counter'],
+    camera_angle_en: 'eye level',
+    rotation_cap_en: '10 degrees',
+  },
 }
 
 const product: RetailProduct = {
@@ -57,15 +69,92 @@ describe('seven-image retail plan', () => {
     })
   })
 
-  it('locks product identity and leaves exact Chinese copy to deterministic composition', () => {
+  it('锁定主体且把中文完全留给 Canvas，prompt 保持纯 ASCII', () => {
     const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'qixi-gifting', evaluateSpecial())
     const prompts = plan.map((item) => item.prompt).join('\n')
 
-    expect(prompts).toContain('RIO 微醺白桃味鸡尾酒')
-    expect(prompts).toContain('preserve the exact product packaging')
-    expect(prompts).toContain('Do not render Chinese or promotional text')
+    // 中文商品名与中文属性值都不进 prompt：夹中文会拉低服从度，
+    // 更会诱导模型把这些字画到包装上，而包装文字只能从参考图像素级复制
+    expect(containsCjk(prompts)).toBe(false)
+    expect(prompts).toContain('Printed material is PIXELS, not characters')
+    expect(prompts).toContain('KEEP EXACTLY from [image 1]')
     expect(prompts).not.toMatch(/满\s*\d+\s*减\s*\d+/)
     expect(prompts).not.toMatch(/[¥￥]\s*\d/)
+  })
+
+  it('七个基础位各自拿到不同的可执行视觉指令', () => {
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'clean-retail', evaluateSpecial())
+    const basePrompts = plan.filter((item) => item.id !== '08-special').map((item) => item.prompt)
+
+    expect(new Set(basePrompts).size).toBe(7)
+    // 景别/机位/构图词必须真实存在，而不是只靠一句目标句区分
+    for (const prompt of basePrompts) {
+      expect(prompt).toMatch(/FRAMING: .+/)
+      expect(prompt).toMatch(/LAYOUT: the product bounding box spans x \d+%-\d+% and y \d+%-\d+%/)
+      expect(prompt).toMatch(/RESTATE: /)
+    }
+    expect(plan.find((item) => item.id === '04-detail')!.prompt).toContain('macro')
+    expect(plan.find((item) => item.id === '05-scene')!.prompt).toContain('environmental mid shot')
+  })
+
+  it('只有需要留白的两位下达静区指令，详情长图不下', () => {
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'clean-retail', evaluateSpecial())
+    const reserved = (id: string) => plan.find((item) => item.id === id)!.prompt.includes('RESERVED:')
+
+    expect(reserved('03-selling-points')).toBe(true)
+    expect(reserved('06-specification')).toBe(true)
+    // 07 的文案画在图带下方，图带本身不被遮挡，下留白指令只会白白缩小商品
+    expect(reserved('07-detail-page')).toBe(false)
+    expect(reserved('01-main')).toBe(false)
+  })
+
+  it('白底主图不会被礼赠风格污染成有道具的画面', () => {
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'qixi-gifting', evaluateSpecial())
+    const main = plan.find((item) => item.id === '01-main')!.prompt
+    const scene = plan.find((item) => item.id === '05-scene')!.prompt
+
+    expect(main).toContain('pure white RGB 255,255,255')
+    expect(main).not.toContain('Qixi gifting surroundings')
+    // 场景位才吃道具通道
+    expect(scene).toContain('Qixi gifting surroundings')
+  })
+
+  it('负面词不再被回灌进正向 prompt', () => {
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'clean-retail', evaluateSpecial())
+
+    for (const item of plan) {
+      expect(item.negativePrompt).toBe('')
+      if (!item.prompt) continue
+      // 违禁名词只允许出现在末尾的 AVOID 行，正向块里一次都不许出现
+      const beforeAvoid = item.prompt.split('AVOID:')[0]
+      expect(beforeAvoid).not.toMatch(/coupon|qr code|watermark|price tag/i)
+    }
+  })
+
+  it('不再按下标消费错位的 slot_plan', () => {
+    const plan = createRetailImagePlan(product, archetype, 'meituan-square', 'clean-retail', evaluateSpecial())
+    const sellingPoints = plan.find((item) => item.id === '03-selling-points')!
+    const detail = plan.find((item) => item.id === '04-detail')!
+
+    // 旧实现会把 slot_plan[2]='酒体或杯饮细节' 喂给卖点位、slot_plan[3]='真实饮用场景' 喂给细节位
+    expect(sellingPoints.objective).not.toContain('酒体或杯饮细节')
+    expect(detail.objective).not.toContain('真实饮用场景')
+    expect(detail.prompt).not.toContain('drinking scene')
+  })
+
+  it('类目方向按 slotId 键控注入，且只取英文那份', () => {
+    const keyed: RetailArchetype = {
+      ...archetype,
+      slot_directions: {
+        '04-detail': { zh: '酒体或杯饮细节', en: 'crop in on the cap seal and the embossed shoulder' },
+      },
+    }
+    const plan = createRetailImagePlan(product, keyed, 'meituan-square', 'clean-retail', evaluateSpecial())
+    const detail = plan.find((item) => item.id === '04-detail')!
+
+    expect(detail.prompt).toContain('DIRECTION: crop in on the cap seal and the embossed shoulder')
+    expect(containsCjk(detail.prompt)).toBe(false)
+    expect(detail.objective).toContain('酒体或杯饮细节')
   })
 
   it('uses only confirmed product facts in specification copy', () => {

@@ -1,4 +1,5 @@
 import type { RetailPlatformPreset, RetailSlotId } from '../types'
+import { RETAIL_DETAIL_BAND_PCT } from './retailGeometry'
 
 export const RETAIL_PLATFORM_PRESETS: Record<string, RetailPlatformPreset> = {
   'meituan-square': {
@@ -53,9 +54,17 @@ export function getRetailSlotOutputSize(presetId: string, slotId: RetailSlotId) 
   return { ...preset.gallery }
 }
 
+/**
+ * 生成尺寸按**合成后真正可见的图窗**推导，不是按最终画布。
+ * 07 详情长图最终是 750×2000，但 drawDetailCopy 只把生成图铺进顶部 43%（750×860），
+ * 按 750×2000 推出 1024×1536 会在 cover 时上下各裁掉 11.8%、白白丢掉约 23.6% 的付费像素。
+ */
 export function getRetailGenerationSize(presetId: string, slotId: RetailSlotId) {
   const size = getRetailSlotOutputSize(presetId, slotId)
-  const ratio = size.width / size.height
+  const height = slotId === '07-detail-page'
+    ? Math.round(size.height * RETAIL_DETAIL_BAND_PCT)
+    : size.height
+  const ratio = size.width / height
   if (ratio > 1.18) return '1536x1024'
   if (ratio < 0.85) return '1024x1536'
   return '1024x1024'

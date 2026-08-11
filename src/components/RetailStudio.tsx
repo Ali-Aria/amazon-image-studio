@@ -407,7 +407,10 @@ export default function RetailStudio() {
         let outputDataUrl: string
         if (execution.useModel) {
           const taskId = await submitPreparedTask({
-            prompt: `${plan.prompt}\n\nNegative requirements: ${plan.negativePrompt}`,
+            // 逐位负面词已经作为 AVOID 行渲染在 plan.prompt 末尾。绝不能再把整份负面串
+            // 追加到正向 prompt：这条链路没有原生 negative_prompt 通道，追加等于把
+            // 「价格、优惠券、二维码、水印」这些名词当正向指令喂进生图模型。
+            prompt: plan.prompt,
             inputImages: execution.images,
             params: { ...DEFAULT_PARAMS, size: plan.generationSize, quality: 'high', output_format: 'png', output_compression: null, n: 1 },
             category: {

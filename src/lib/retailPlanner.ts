@@ -8,6 +8,74 @@ import type {
 import { getConfirmedRetailFacts } from './retailProduct'
 import { getRetailGenerationSize, getRetailSlotOutputSize } from './retailPlatform'
 import { evaluateRetailSpecialImage } from './retailSpecialImage'
+import { computeSlotSafeBox } from './retailSafeBox'
+import {
+  containsCjk,
+  renderRetailSlotPrompt,
+  RETAIL_SHARED_NEGATIVES,
+  RETAIL_SLOT_RECIPES,
+} from './retailSlotRecipes'
+import { buildRetailUnitClause, parseRetailUnitCount } from './retailUnitCount'
+
+/** 只有这些事实是视觉上可核对的；中文描述性字段不进 prompt，参考图才是权威 */
+const ASCII_FACT_LABELS: Record<string, string> = {
+  净含量: 'net content',
+  售卖规格: 'pack spec',
+  酒精度: 'alcohol by volume',
+  重量: 'weight',
+  尺寸: 'size',
+}
+
+/**
+ * prompt 必须是纯 ASCII 英文。中文商品名与中文属性值一律不进 prompt：
+ * 一来英文指令里夹中文会明显拉低服从度，二来把中文事实喂进去等于邀请模型
+ * 把这些字「画」到包装上，而包装文字只能从参考图像素级复制。
+ */
+function buildAsciiFacts(facts: Record<string, string>) {
+  const entries = Object.entries(ASCII_FACT_LABELS)
+    .flatMap(([zhLabel, enLabel]) => {
+      const value = facts[zhLabel]?.trim()
+      if (!value || containsCjk(value)) return []
+      return [`${enLabel} ${value}`]
+    })
+  return entries.length > 0 ? entries.join(', ') : 'none machine-checkable; the reference image is the only authority'
+}
+
+/** 用类目英文标识描述主体，而不是把中文商品名塞进 prompt */
+function toAsciiSubject(archetype: RetailArchetype, unitNoun: string) {
+  const category = archetype.id.replace(/_/g, ' ')
+  return unitNoun === 'unit' ? `a ${category} product` : `a ${category} product in a ${unitNoun}`
+}
+
+function buildLockedList(facts: Record<string, string>) {
+  const parts = [
+    'the package shape and proportions',
+    'every printed glyph and graphic exactly as photographed',
+    'the brand marks',
+    'the colours and finish',
+    'the unit count',
+  ]
+  if (facts['净含量'] && !containsCjk(facts['净含量'])) parts.push('the printed net content marking')
+  return parts.join(', ')
+}
+
+function buildSlotNegatives(
+  slotNegatives: string[],
+  unitNegatives: string[],
+  product: RetailProduct,
+  archetype: RetailArchetype,
+) {
+  const custom = product.forbidden.trim()
+  const merged = [
+    ...slotNegatives,
+    ...unitNegatives,
+    ...RETAIL_SHARED_NEGATIVES,
+    // 知识库的中文 forbidden 只给人看；只有英文镜像才允许进模型
+    ...(archetype.forbidden_en ?? []),
+    ...(custom && !containsCjk(custom) ? [custom] : []),
+  ]
+  return [...new Set(merged.map((value) => value.trim().toLowerCase()).filter(Boolean))].slice(0, 26)
+}
 
 export const RETAIL_BASE_SLOT_IDS: RetailSlotId[] = [
   '01-main',
@@ -21,22 +89,31 @@ export const RETAIL_BASE_SLOT_IDS: RetailSlotId[] = [
 
 export const RETAIL_SLOT_IDS: RetailSlotId[] = [...RETAIL_BASE_SLOT_IDS, '08-special']
 
+/**
+ * 风格拆成两个通道：lighting 只描述光与色调，set 才描述道具与环境。
+ * 白底主图、正面图、规格图只吃 lighting——原来把整条风格词无条件注入七位，
+ * 「七夕礼赠」的礼品丝带会和白底主图「无道具」的硬约束在同一条 prompt 里直接打架。
+ */
 export const RETAIL_STYLE_PRESETS = {
   'clean-retail': {
     label: '平台清爽',
-    prompt: 'bright clean instant-retail photography, crisp neutral white, restrained yellow and teal accents, high legibility',
+    lighting: 'Bright neutral commercial lighting, crisp daylight white balance, high legibility.',
+    set: 'Clean modern retail surroundings with restrained props.',
   },
   'qixi-gifting': {
     label: '七夕礼赠',
-    prompt: 'Qixi gifting atmosphere, refined coral pink and sky blue accents, heart-shaped paper details and gift ribbon, bright commercial lighting, no flowers',
+    lighting: 'Bright commercial lighting with a soft warm coral cast.',
+    set: 'Refined Qixi gifting surroundings in coral pink and sky blue, no flowers.',
   },
   'night-delivery': {
     label: '夜间即时',
-    prompt: 'fresh night-delivery mood, clean illuminated countertop, subtle cyan and warm red accents, premium convenience retail photography',
+    lighting: 'Cool evening key light with warm practical fill, controlled contrast.',
+    set: 'A clean illuminated night-time countertop in a convenience retail setting.',
   },
   'premium-drinks': {
     label: '质感酒饮',
-    prompt: 'premium beverage photography, clear glass reflections, deep neutral background with champagne and berry accents, controlled highlights',
+    lighting: 'Controlled directional highlights, deep neutral tonality, glassware-grade specular control.',
+    set: 'A premium bar or tasting surface with restrained champagne and berry accents.',
   },
 } as const
 
@@ -58,9 +135,20 @@ function specificationLines(product: RetailProduct) {
   ], 8)
 }
 
+/**
+ * 类目方向：只认按 slotId 键控的 slot_directions，且只取英文那份进 prompt。
+ * 旧的 slot_plan 是一个 7 元素裸数组、按 RETAIL_SLOT_IDS 下标直取，但知识库那份
+ * 序列里没有「核心卖点」这一位，23/23 个原型整体错位一格——卖点位被要求拍内容物细节、
+ * 细节位被要求拍饮用场景。错的方向比没有方向更糟，所以在知识库补齐键控结构之前，
+ * 这里宁可返回空串，也不再按下标取值。
+ */
+function categoryDirectionFor(id: RetailSlotId, archetype: RetailArchetype): { en: string; zh: string } {
+  const directions = archetype.slot_directions?.[id]
+  return { en: directions?.en?.trim() ?? '', zh: directions?.zh?.trim() ?? '' }
+}
+
 function slotDefinition(id: RetailSlotId, archetype: RetailArchetype, product: RetailProduct) {
-  const index = RETAIL_SLOT_IDS.indexOf(id)
-  const categoryObjective = archetype.slot_plan[index]
+  const categoryObjective = categoryDirectionFor(id, archetype).zh
   const defaults = {
     '01-main': { label: '白底主图', objective: '商品完整居中，快速识别实际售卖内容', composeMode: 'none' },
     '02-front': { label: '商品正面', objective: '清晰展示品牌、包装正面与商品数量', composeMode: 'none' },
@@ -104,19 +192,18 @@ export function createRetailImagePlan(
 ): RetailImagePlan[] {
   const facts = getConfirmedRetailFacts(product)
   const style = RETAIL_STYLE_PRESETS[styleId as keyof typeof RETAIL_STYLE_PRESETS] ?? RETAIL_STYLE_PRESETS['clean-retail']
-  const factBlock = Object.entries(facts)
-    .filter(([label]) => !['条码', 'SKU'].includes(label))
-    .map(([label, value]) => `${label}: ${value}`)
-    .join('; ')
+  const factBlock = buildAsciiFacts(facts)
+
+  const unitCount = parseRetailUnitCount(product.saleSpecification, product.saleUnit)
+  const unit = buildRetailUnitClause(unitCount)
+  const lockedList = buildLockedList(facts)
 
   const basePlans = RETAIL_BASE_SLOT_IDS.map((id, index) => {
     const definition = slotDefinition(id, archetype, product)
-    const textFree = definition.composeMode !== 'none'
-      ? 'Keep a calm, high-contrast empty copy area. Do not render Chinese or promotional text; exact copy will be composed later.'
-      : 'Do not render Chinese or promotional text beyond text already printed on the real product packaging.'
-    const mainGuard = id === '01-main'
-      ? 'Pure white background. One complete centered product. No props, badges, border, shadow clutter, or extra package.'
-      : ''
+    const recipe = RETAIL_SLOT_RECIPES[id]
+    const generationSize = getRetailGenerationSize(platformPresetId, id)
+    const safeBox = computeSlotSafeBox(platformPresetId, id, generationSize)
+    const subjectRules = archetype.subject_rules
 
     return {
       id,
@@ -126,26 +213,31 @@ export function createRetailImagePlan(
       composeMode: definition.composeMode,
       copyLines: copyLinesForSlot(id, product),
       targetSize: getRetailSlotOutputSize(platformPresetId, id),
-      generationSize: getRetailGenerationSize(platformPresetId, id),
+      generationSize,
       generationEligible: true,
       processingMode: 'ai' as const,
-      prompt: [
-        `Create an upload-ready instant-retail product image for: ${product.name}.`,
-        `Image role: ${definition.objective}.`,
-        `Confirmed product facts: ${factBlock}.`,
-        `Visual direction: ${style.prompt}.`,
-        'Use the uploaded source product as the locked subject and preserve the exact product packaging, brand marks, colors, proportions, count, and visible specification. Do not redraw or invent packaging details.',
-        mainGuard,
-        textFree,
-        product.customPrompt.trim(),
-      ].filter(Boolean).join('\n'),
-      negativePrompt: [
-        'altered packaging, misspelled label, invented specification, duplicate product, missing cap, warped logo',
-        'price, coupon amount, discount threshold, QR code, watermark, contact information, ratings, sales ranking, other platform logo',
-        'internal QA note, placeholder, pending information, instruction text, clutter, low resolution',
-        product.forbidden.trim(),
-        ...archetype.forbidden,
-      ].filter(Boolean).join(', '),
+      prompt: renderRetailSlotPrompt(recipe, {
+        name: toAsciiSubject(archetype, unitCount.count === null ? 'unit' : unitCount.unitNoun),
+        facts: factBlock,
+        safeBox,
+        lockedList,
+        styleLighting: style.lighting,
+        styleSet: style.set,
+        categoryDirection: categoryDirectionFor(id, archetype).en,
+        unitClause: unit.clause,
+        unitRestate: unit.restate,
+        rotationCap: subjectRules?.rotation_cap_en ?? '10 degrees',
+        detailTarget: subjectRules?.detail_targets?.join(' or ') ?? 'a surface that is clearly visible in the reference',
+        cameraAngle: subjectRules?.camera_angle_en ?? 'eye level',
+        sceneSurface: subjectRules?.scene_surfaces?.join(' or ') ?? 'a plain everyday surface',
+        specFace: subjectRules?.text_surfaces?.join(' or ') ?? 'the face that carries the printed specification',
+        slotOverride: product.customPrompt.trim(),
+        negatives: buildSlotNegatives(recipe.slotNegatives, unit.negatives, product, archetype),
+      }),
+      // 逐位负面词已经作为 AVOID 行渲染进 prompt 本体；这里保留字段只为兼容旧数据，
+      // 绝不能再被下游拼回正向 prompt——把「价格/优惠券/二维码」当正向文本喂给生图模型
+      // 恰恰是让它把这些元素画出来的典型诱因。
+      negativePrompt: '',
     }
   })
 
@@ -156,15 +248,29 @@ export function createRetailImagePlan(
     preferredType: 'auto',
   })
   const specialId: RetailSlotId = '08-special'
+  const specialGenerationSize = getRetailGenerationSize(platformPresetId, specialId)
+  const specialRecipe = RETAIL_SLOT_RECIPES['08-special']
+  // 只有礼盒图会进模型；背标与证照走 source-only，信息卡与尺码表走 Canvas 确定性排版。
+  // 这一位同样只吃 lighting 通道：礼赠风格词里的「丝带」会和「不得凭空造礼盒丝带」直接打架。
   const specialPrompt = special.processingMode === 'ai-preserve'
-    ? [
-        `Create an upload-ready instant-retail gift package image for: ${product.name}.`,
-        `Confirmed product facts: ${factBlock}.`,
-        `Visual direction: ${style.prompt}.`,
-        'Use the uploaded product and real gift package images as locked references. Preserve the exact product packaging, brand marks, colors, proportions, count, and outer package. Do not invent another box, ribbon, flavor, quantity, or accessory.',
-        'Do not render Chinese or promotional text beyond text already printed on the real packaging.',
-        product.customPrompt.trim(),
-      ].filter(Boolean).join('\n')
+    ? renderRetailSlotPrompt(specialRecipe, {
+        name: toAsciiSubject(archetype, unitCount.unitNoun),
+        facts: factBlock,
+        safeBox: computeSlotSafeBox(platformPresetId, specialId, specialGenerationSize),
+        lockedList: `${lockedList}, and the exact shape, opening structure, printing, colour and closure of the outer package from [image 2]`,
+        styleLighting: style.lighting,
+        styleSet: '',
+        categoryDirection: categoryDirectionFor(specialId, archetype).en,
+        unitClause: `${unit.clause} [image 2] IS the real outer package and is the only authority for its geometry, print and finish.`,
+        unitRestate: unit.restate,
+        rotationCap: archetype.subject_rules?.rotation_cap_en ?? '20 degrees',
+        detailTarget: '',
+        cameraAngle: 'slightly raised',
+        sceneSurface: '',
+        specFace: '',
+        slotOverride: product.customPrompt.trim(),
+        negatives: buildSlotNegatives(specialRecipe.slotNegatives, unit.negatives, product, archetype),
+      })
     : ''
 
   const specialPlan: RetailImagePlan = {
@@ -173,18 +279,11 @@ export function createRetailImagePlan(
     label: '平台特殊图',
     objective: `${special.label}；${special.reason}`,
     prompt: specialPrompt,
-    negativePrompt: special.processingMode === 'ai-preserve'
-      ? [
-          'invented gift box, altered packaging, fake certificate, fake ingredient list, fake nutrition label, misspelled label, duplicate product',
-          'price, coupon amount, discount threshold, QR code, watermark, contact information, ratings, sales ranking, other platform logo',
-          product.forbidden.trim(),
-          ...archetype.forbidden,
-        ].filter(Boolean).join(', ')
-      : '',
+    negativePrompt: '',
     composeMode: 'special',
     copyLines: special.copyLines,
     targetSize: getRetailSlotOutputSize(platformPresetId, specialId),
-    generationSize: getRetailGenerationSize(platformPresetId, specialId),
+    generationSize: specialGenerationSize,
     generationEligible: special.state === 'ready',
     processingMode: special.processingMode,
     specialImageType: special.selectedType,
