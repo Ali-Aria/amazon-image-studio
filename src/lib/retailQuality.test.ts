@@ -94,6 +94,29 @@ describe('retail upload quality checks', () => {
     expect(result.findings.some((finding) => finding.code === 'missing-output')).toBe(false)
   })
 
+  it('treats an eligible but unfinished special image as an optional warning', () => {
+    const result = evaluateRetailSlotQuality({
+      slotId: '08-special',
+      imageId: null,
+      metadata: null,
+      copyLines: ['净含量｜330ml'],
+      preset,
+      productValid: true,
+      special: {
+        generationEligible: true,
+        processingMode: 'deterministic',
+        specialImageType: 'product_facts',
+        sourceRolePresent: true,
+        trustedFacts: { 净含量: '330ml' },
+      },
+    })
+
+    expect(result.status).toBe('warning')
+    expect(result.findings).toEqual([
+      expect.objectContaining({ code: 'special-not-generated', severity: 'warning' }),
+    ])
+  })
+
   it('blocks unverified visible fields in a special image', () => {
     const result = evaluateRetailSlotQuality({
       slotId: '08-special',

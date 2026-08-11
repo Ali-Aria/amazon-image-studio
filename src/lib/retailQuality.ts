@@ -50,7 +50,8 @@ export function evaluateRetailSlotQuality(input: EvaluateRetailSlotQualityInput)
 
   if (!input.productValid) block('missing-facts', '商品关键信息未补齐')
   if (!input.imageId) {
-    block('missing-output', '该图片位尚未生成')
+    if (input.slotId === '08-special' && input.special) warn('special-not-generated', '特殊图尚未生成，将从上传包省略')
+    else block('missing-output', '该图片位尚未生成')
   } else if (!input.metadata) {
     block('missing-metadata', '无法读取图片尺寸')
   } else {

@@ -74,6 +74,23 @@ describe('platform special image policy', () => {
     ]))
   })
 
+  it('routes apparel with verified size mapping to a size guide', () => {
+    const result = evaluateRetailSpecialImage({
+      product: product({
+        name: '女士圆领短袖',
+        categoryPath: '服饰鞋包>女装>短袖',
+        archetypeId: 'apparel_textile',
+        attributes: { 尺码: 'M', 适用体重: '45-55kg' },
+      }),
+      archetype: archetype('apparel_textile', '服饰鞋包'),
+      sourceImageRoles: { 'image-product': 'product' },
+      preferredType: 'auto',
+    })
+
+    expect(result.selectedType).toBe('size_guide')
+    expect(result.copyLines).toEqual(['尺码｜M', '适用体重｜45-55kg'])
+  })
+
   it('does not use derived or unconfirmed OCR facts as visible copy', () => {
     const input = product({
       attributes: { 原产地: '法国', 酒精度: '12%vol', 适用温度: '8-12℃' },
@@ -131,6 +148,22 @@ describe('platform special image policy', () => {
       processingMode: 'source-only',
       allowAiGeneration: false,
       requiredSourceRole: 'authentic_document',
+    })
+  })
+
+  it('keeps a missing medical certificate upload-only and falls back safely', () => {
+    const result = evaluateRetailSpecialImage({
+      product: product({ archetypeId: 'health_medical', categoryPath: '医疗器械>护理器械' }),
+      archetype: archetype('health_medical', '健康医疗'),
+      sourceImageRoles: { 'image-product': 'product' },
+      preferredType: 'authentic_document',
+    })
+
+    expect(result.selectedType).toBe('product_facts')
+    expect(result.options.find((option) => option.type === 'authentic_document')).toMatchObject({
+      state: 'needs-upload',
+      processingMode: 'source-only',
+      allowAiGeneration: false,
     })
   })
 
