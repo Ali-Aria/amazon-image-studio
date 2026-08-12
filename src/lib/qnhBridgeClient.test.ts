@@ -66,7 +66,7 @@ describe('QNH bridge client', () => {
   })
 
   it('encodes a plan id and posts only the confirmation phrase during execution', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ status: 'succeeded' }))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ status: 'succeeded' }))
     globalThis.fetch = fetchMock as typeof fetch
 
     await fetchQnhRepairPlan('http://127.0.0.1:8768', 'plan id/1')

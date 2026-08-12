@@ -237,6 +237,60 @@ export function applyQnhInventory(draft: QnhRepairDraft, inventory: QnhInventory
   }
 }
 
+const EMPTY_CHECKLIST: QnhAuthenticityChecklist = {
+  packagingText: false,
+  brand: false,
+  specification: false,
+  color: false,
+  unitCount: false,
+  structure: false,
+}
+
+function targetForSlot(slotId: RetailSlotId) {
+  if (slotId === '07-detail-page') return 'detail' as const
+  if (slotId === '08-special') return 'special' as const
+  return 'main' as const
+}
+
+export function syncQnhRepairOutputReviews(project: RetailProject): QnhRepairDraft {
+  const draft = project.qnhRepair
+  const defaultProductSource = project.sourceImageIds.find((id) => (project.sourceImageRoles[id] ?? 'product') === 'product') ?? ''
+  const specialPlan = project.plans.find((plan) => plan.id === '08-special')
+  const nextReviews = Object.fromEntries(project.slots.flatMap((slot) => {
+    const outputImageId = slot.composedImageId || slot.outputImageId
+    if (slot.status !== 'done' || !outputImageId) return []
+    const existing = draft.outputReviews[slot.slotId]
+    if (existing?.outputImageId === outputImageId) return [[slot.slotId, existing]]
+    const processingMode = slot.slotId === '08-special' ? specialPlan?.processingMode ?? 'ai' : 'ai'
+    const sourceRole = slot.slotId === '08-special' ? specialPlan?.requiredSourceRole ?? 'product' : 'product'
+    const sourceImageId = processingMode === 'source-only'
+      ? outputImageId
+      : project.sourceImageIds.find((id) => (project.sourceImageRoles[id] ?? 'product') === sourceRole) ?? defaultProductSource
+    return [[slot.slotId, {
+      slotId: slot.slotId,
+      target: targetForSlot(slot.slotId),
+      pictureType: null,
+      sourceImageId,
+      outputImageId,
+      sourceRole,
+      processingMode,
+      verdict: 'unreviewed',
+      checklist: { ...EMPTY_CHECKLIST },
+      note: '',
+    } satisfies QnhOutputReview]]
+  })) as Partial<Record<RetailSlotId, QnhOutputReview>>
+  const current = JSON.stringify(draft.outputReviews)
+  const next = JSON.stringify(nextReviews)
+  if (current === next) return draft
+  return {
+    ...draft,
+    outputReviews: nextReviews,
+    planId: null,
+    planSummary: null,
+    execution: null,
+  }
+}
+
 export function getQnhInventoryImages(inventory: QnhInventorySnapshot) {
   return [
     ...inventory.mainImages,
@@ -276,7 +330,9 @@ export function getQnhRepairReadiness(draft: QnhRepairDraft): QnhRepairReadiness
   if (outputReviews.some((review) => review.verdict === 'unreviewed')) issues.push('还有拟写入图片未完成 PASS/REJECT 审核')
   for (const review of outputReviews.filter((item) => item.verdict === 'pass')) {
     if (!review.sourceImageId || !review.outputImageId) issues.push(`${review.slotId} 缺少真实来源图或成图`)
-    if (review.sourceImageId && review.sourceImageId === review.outputImageId) issues.push(`${review.slotId} 真实来源图不能与成图相同`)
+    if (review.processingMode !== 'source-only' && review.sourceImageId && review.sourceImageId === review.outputImageId) {
+      issues.push(`${review.slotId} 真实来源图不能与成图相同`)
+    }
     if (CHECKLIST_KEYS.some((key) => !review.checklist[key])) issues.push(`${review.slotId} 包装保真核对未完成`)
     if (review.target === 'special' && review.pictureType === null) issues.push('特殊图必须选择牵牛花 pictureType')
     if ((review.sourceRole === 'authentic_document' || review.sourceRole === 'back_label') && review.processingMode !== 'source-only') {

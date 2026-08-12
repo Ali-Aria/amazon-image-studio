@@ -6,13 +6,12 @@ import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import { HelpCircleIcon, InstallIcon, SettingsIcon } from './icons'
 import { Button } from './Button'
+import type { AppView } from '../lib/appRoute'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
-
-type AppView = 'home' | 'editor' | 'tagger'
 
 type HeaderProps = {
   activeView: AppView
@@ -94,7 +93,7 @@ export default function Header({ activeView, onNavigate }: HeaderProps) {
 
   return (
     <>
-      <header data-no-drag-select className={`${activeView === 'home' ? 'retail-app-header ' : ''}safe-area-top fixed left-0 right-0 top-0 z-40 border-b border-black/[0.06] bg-white/75 shadow-[0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-2xl dark:border-white/[0.08] dark:bg-gray-950/80 dark:shadow-none`}>
+      <header data-no-drag-select className={`${activeView === 'home' || activeView === 'repair' ? 'retail-app-header ' : ''}safe-area-top fixed left-0 right-0 top-0 z-40 border-b border-black/[0.06] bg-white/75 shadow-[0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-2xl dark:border-white/[0.08] dark:bg-gray-950/80 dark:shadow-none`}>
         <div className="safe-area-x safe-header-inner mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3">
           <div className="flex min-w-0 items-center gap-1 sm:gap-3">
             <h1 className="hidden min-w-0 min-[520px]:block">
@@ -113,7 +112,15 @@ export default function Header({ activeView, onNavigate }: HeaderProps) {
                 data-nav-active={activeView === 'home'}
                 className={`h-8 rounded-[10px] px-2.5 text-xs font-semibold transition sm:px-3 ${activeView === 'home' ? 'bg-gray-900 text-white shadow-sm dark:bg-white dark:text-gray-900' : 'text-gray-500 hover:bg-black/[0.05] hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'}`}
               >
-                工作台
+                <span className="hidden sm:inline">出图工作台</span><span className="sm:hidden">出图</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('repair')}
+                data-nav-active={activeView === 'repair'}
+                className={`h-8 rounded-[10px] px-2.5 text-xs font-semibold transition sm:px-3 ${activeView === 'repair' ? 'bg-gray-900 text-white shadow-sm dark:bg-white dark:text-gray-900' : 'text-gray-500 hover:bg-black/[0.05] hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'}`}
+              >
+                商品图修复
               </button>
               <button
                 type="button"
@@ -121,13 +128,13 @@ export default function Header({ activeView, onNavigate }: HeaderProps) {
                 data-nav-active={activeView === 'editor'}
                 className={`h-8 rounded-[10px] px-2.5 text-xs font-semibold transition sm:px-3 ${activeView === 'editor' ? 'bg-[hsl(var(--primary))] text-white shadow-sm' : 'text-gray-500 hover:bg-black/[0.05] hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'}`}
               >
-                图片编辑
+                <span className="hidden sm:inline">图片编辑</span><span className="sm:hidden">编辑</span>
               </button>
               <button
                 type="button"
                 onClick={() => onNavigate('tagger')}
                 data-nav-active={activeView === 'tagger'}
-                className={`h-8 rounded-[10px] px-2.5 text-xs font-semibold transition sm:px-3 ${activeView === 'tagger' ? 'bg-[hsl(var(--primary))] text-white shadow-sm' : 'text-gray-500 hover:bg-black/[0.05] hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'}`}
+                className={`hidden h-8 rounded-[10px] px-2.5 text-xs font-semibold transition min-[820px]:inline-flex min-[820px]:items-center sm:px-3 ${activeView === 'tagger' ? 'bg-[hsl(var(--primary))] text-white shadow-sm' : 'text-gray-500 hover:bg-black/[0.05] hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'}`}
               >
                 AI 人物打标
               </button>

@@ -8,6 +8,8 @@ import RetailStudio from './components/RetailStudio'
 import ImageEditorPage from './components/ImageEditorPage'
 import SyntheticPerformerTaggerPage from './components/SyntheticPerformerTaggerPage'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
+import QnhRepairWorkspace from './components/QnhRepairWorkspace'
+import { getAppViewFromHash, type AppView } from './lib/appRoute'
 
 const DetailModal = lazy(() => import('./components/DetailModal'))
 const Lightbox = lazy(() => import('./components/Lightbox'))
@@ -17,18 +19,9 @@ const Toast = lazy(() => import('./components/Toast'))
 const MaskEditorModal = lazy(() => import('./components/MaskEditorModal'))
 const ImageContextMenu = lazy(() => import('./components/ImageContextMenu'))
 
-export type AppView = 'home' | 'editor' | 'tagger'
-
-function getAppViewFromHash(): AppView {
-  const route = window.location.hash.replace(/^#\/?/, '')
-  if (route === 'editor' || route === 'seedream-pro') return 'editor'
-  if (route === 'tagger') return 'tagger'
-  return 'home'
-}
-
 export default function App() {
   const setSettings = useStore((s) => s.setSettings)
-  const [view, setView] = useState<AppView>(getAppViewFromHash)
+  const [view, setView] = useState<AppView>(() => getAppViewFromHash(window.location.hash))
   useDockerApiUrlMigrationNotice()
   useGlobalClickSuppression()
 
@@ -55,7 +48,7 @@ export default function App() {
       if (window.location.hash.replace(/^#\/?/, '') === 'seedream-pro') {
         window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/editor`)
       }
-      setView(getAppViewFromHash())
+      setView(getAppViewFromHash(window.location.hash))
     }
     syncViewFromLocation()
     window.addEventListener('hashchange', syncViewFromLocation)
@@ -79,7 +72,7 @@ export default function App() {
 
   const navigate = (nextView: AppView) => {
     setView(nextView)
-    if (nextView === 'editor' || nextView === 'tagger') {
+    if (nextView !== 'home') {
       const hash = `#/${nextView}`
       if (window.location.hash !== hash) window.location.hash = `/${nextView}`
       return
@@ -94,6 +87,8 @@ export default function App() {
       <Header activeView={view} onNavigate={navigate} />
       {view === 'home' ? (
         <RetailStudio />
+      ) : view === 'repair' ? (
+        <QnhRepairWorkspace />
       ) : (
         <main data-home-main data-drag-select-surface className="pb-10">
           <div className={`safe-area-x mx-auto lg:!px-6 ${view === 'editor' ? 'max-w-[96rem]' : 'max-w-7xl'}`}>

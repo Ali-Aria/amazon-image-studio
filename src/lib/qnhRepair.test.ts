@@ -12,6 +12,7 @@ import {
   createEmptyQnhRepairDraft,
   getQnhRepairReadiness,
   normalizeQnhBridgeUrl,
+  syncQnhRepairOutputReviews,
 } from './qnhRepair'
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo='
@@ -181,6 +182,21 @@ describe('QNH repair domain', () => {
     expect(getQnhRepairReadiness(draft).issues).toContain('证照或背标只能原图直传，禁止 AI 生成')
   })
 
+  it('allows a source-only document to use the same stored image as source and output', () => {
+    const draft = reviewedDraft()
+    draft.outputReviews['08-special'] = passedReview({
+      slotId: '08-special',
+      target: 'special',
+      pictureType: 24,
+      sourceImageId: 'document-a',
+      outputImageId: 'document-a',
+      sourceRole: 'authentic_document',
+      processingMode: 'source-only',
+    })
+
+    expect(getQnhRepairReadiness(draft).issues).not.toContain('08-special 真实来源图不能与成图相同')
+  })
+
   it('builds a plan with reviewed removals and only PASS outputs', () => {
     const project: RetailProject = createRetailProject(100)
     project.product.name = '测试商品 500ml'
@@ -209,5 +225,27 @@ describe('QNH repair domain', () => {
     expect(request.inventory.decisions.find((item) => item.imageId === 'main:1')).toMatchObject({ decision: 'remove', reason: '其他平台水印' })
     expect(request.outputs).toHaveLength(1)
     expect(request.outputs[0]).toMatchObject({ slotId: '01-main', target: 'main', sourceImageId: 'source-a', outputImageId: 'output-a' })
+  })
+
+  it('synchronizes every available 7+1 output into an explicit review gate', () => {
+    const project = createRetailProject(100)
+    project.sourceImageIds = ['source-product', 'source-document']
+    project.sourceImageRoles = { 'source-product': 'product', 'source-document': 'authentic_document' }
+    project.slots[0] = { ...project.slots[0], status: 'done', outputImageId: 'main-output' }
+    project.slots[6] = { ...project.slots[6], status: 'done', composedImageId: 'detail-output' }
+    project.slots[7] = { ...project.slots[7], status: 'done', outputImageId: 'source-document' }
+    project.plans = [{
+      id: '08-special', order: 8, label: '资质图', objective: '', prompt: '', negativePrompt: '', composeMode: 'special', copyLines: [],
+      targetSize: { width: 600, height: 600 }, generationSize: '1024x1024', generationEligible: true,
+      processingMode: 'source-only', specialImageType: 'authentic_document', requiredSourceRole: 'authentic_document',
+    }]
+
+    const draft = syncQnhRepairOutputReviews(project)
+
+    expect(Object.keys(draft.outputReviews)).toEqual(['01-main', '07-detail-page', '08-special'])
+    expect(draft.outputReviews['01-main']).toMatchObject({ target: 'main', sourceImageId: 'source-product', outputImageId: 'main-output', verdict: 'unreviewed' })
+    expect(draft.outputReviews['07-detail-page']).toMatchObject({ target: 'detail', outputImageId: 'detail-output' })
+    expect(draft.outputReviews['08-special']).toMatchObject({ target: 'special', sourceImageId: 'source-document', outputImageId: 'source-document', processingMode: 'source-only' })
+    expect(getQnhRepairReadiness({ ...draft, inventory: inventory(), spuId: '123456789', detachAcknowledged: true }).issues).toContain('还有拟写入图片未完成 PASS/REJECT 审核')
   })
 })
