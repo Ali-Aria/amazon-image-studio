@@ -1,0 +1,66 @@
+{
+  "version": "1.0.0",
+  "mode": "fake",
+  "bindHost": "127.0.0.1",
+  "port": 8768,
+  "storeName": "本地演练门店",
+  "tenantId": "demo-tenant",
+  "storeId": "demo-store",
+  "dataDir": "./.qnh-bridge-data",
+  "maxImageBytes": 10485760,
+  "maxRequestBytes": 83886080,
+  "allowedOrigins": [
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5175",
+    "http://127.0.0.1:5176",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://localhost:5176"
+  ],
+  "fakeInventory": {
+    "spuId": "123456789",
+    "productName": "演练商品 500ml",
+    "mainImages": [
+      {
+        "id": "main:0",
+        "kind": "main",
+        "index": 0,
+        "url": "https://placehold.co/900x900/f4f5f7/172033?text=Current+Main+1"
+      },
+      {
+        "id": "main:1",
+        "kind": "main",
+        "index": 1,
+        "url": "https://placehold.co/900x900/fff1f0/b43c35?text=Review+Removal"
+      }
+    ],
+    "detailImages": [
+      {
+        "id": "detail:0",
+        "kind": "detail",
+        "index": 0,
+        "url": "https://placehold.co/900x1200/edf7f6/087f7a?text=Current+Detail"
+      }
+    ],
+    "specialImages": [
+      {
+        "pictureType": 22,
+        "label": "选购指南图",
+        "required": true,
+        "images": []
+      },
+      {
+        "pictureType": 24,
+        "label": "真实资质图",
+        "required": false,
+        "images": []
+      }
+    ],
+    "customizedMain": false,
+    "customizedDetail": false,
+    "fingerprint": "fake-inventory-v1",
+    "fetchedAt": "2026-08-12T12:00:00Z"
+  }
+}
