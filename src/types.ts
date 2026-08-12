@@ -491,6 +491,8 @@ export interface QnhRepairPlanRequest {
     mainImages: QnhInventoryImage[]
     detailImages: QnhInventoryImage[]
     specialImages: QnhSpecialInventoryItem[]
+    customizedMain: boolean
+    customizedDetail: boolean
     decisions: Array<QnhInventoryImage & QnhExistingImageReview & { imageId: string }>
   }
   outputs: Array<QnhOutputReview & {

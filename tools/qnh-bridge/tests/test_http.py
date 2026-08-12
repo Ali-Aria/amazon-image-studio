@@ -56,7 +56,7 @@ class BridgeHttpTests(unittest.TestCase):
 
         status, _, snapshot = self.request("POST", "/v1/inventory", {"spuId": "123456789"})
         self.assertEqual(status, 200)
-        self.assertEqual(snapshot["fingerprint"], "inventory-fingerprint-a")
+        self.assertEqual(snapshot["fingerprint"], inventory()["fingerprint"])
 
         status, _, summary = self.request("POST", "/v1/plans", plan())
         self.assertEqual(status, 201)

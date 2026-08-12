@@ -221,6 +221,8 @@ describe('QNH repair domain', () => {
     expect(request.schemaVersion).toBe(1)
     expect(request.identity.storeName).toBe('演练门店')
     expect(request.inventory.fingerprint).toBe('inventory-a')
+    expect(request.inventory.customizedMain).toBe(false)
+    expect(request.inventory.customizedDetail).toBe(false)
     expect(request.inventory.decisions).toHaveLength(4)
     expect(request.inventory.decisions.find((item) => item.imageId === 'main:1')).toMatchObject({ decision: 'remove', reason: '其他平台水印' })
     expect(request.outputs).toHaveLength(1)

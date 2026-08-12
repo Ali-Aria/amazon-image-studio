@@ -385,6 +385,8 @@ export function buildQnhRepairPlanRequest(input: {
       mainImages: draft.inventory.mainImages,
       detailImages: draft.inventory.detailImages,
       specialImages: draft.inventory.specialImages,
+      customizedMain: draft.inventory.customizedMain,
+      customizedDetail: draft.inventory.customizedDetail,
       decisions: images.map((image) => ({
         ...image,
         imageId: image.id,

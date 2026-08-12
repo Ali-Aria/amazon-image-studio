@@ -38,6 +38,18 @@ CHECKLIST_KEYS = (
     "structure",
 )
 DOCUMENT_ROLES = {"authentic_document", "back_label"}
+SOURCE_ROLES = {"product", "back_label", "gift_pack", "authentic_document"}
+PROCESSING_MODES = {"ai", "deterministic", "ai-preserve", "source-only"}
+SLOT_TARGETS = {
+    "01-main": "main",
+    "02-front": "main",
+    "03-selling-points": "main",
+    "04-detail": "main",
+    "05-scene": "main",
+    "06-specification": "main",
+    "07-detail-page": "detail",
+    "08-special": "special",
+}
 
 
 def canonical_json(value: Any) -> str:
@@ -95,6 +107,8 @@ def normalize_bridge_config(raw: Any) -> dict:
         "dataDir": os.path.abspath(os.path.expanduser(_string(config["dataDir"], "dataDir"))),
         "maxImageBytes": _integer(config.get("maxImageBytes", 10 * 1024 * 1024), "maxImageBytes", minimum=1),
         "maxRequestBytes": _integer(config.get("maxRequestBytes", 80 * 1024 * 1024), "maxRequestBytes", minimum=1),
+        "maxMainImages": _integer(config.get("maxMainImages", 10), "maxMainImages", minimum=1),
+        "maxDetailImages": _integer(config.get("maxDetailImages", 20), "maxDetailImages", minimum=0),
         "allowedOrigins": allowed_origins,
     }
     return normalized
@@ -115,6 +129,13 @@ def _decode_data_url(value: Any, label: str, max_bytes: int) -> dict:
         raise PlanValidationError(f"{label} 不能为空")
     if len(payload) > max_bytes:
         raise PlanValidationError(f"{label} 超过图片大小上限")
+    signatures_ok = (
+        (mime == "image/png" and payload.startswith(b"\x89PNG\r\n\x1a\n"))
+        or (mime == "image/jpeg" and payload.startswith(b"\xff\xd8\xff"))
+        or (mime == "image/webp" and len(payload) >= 12 and payload[:4] == b"RIFF" and payload[8:12] == b"WEBP")
+    )
+    if not signatures_ok:
+        raise PlanValidationError(f"{label} 文件头与声明 MIME 不一致")
     digest = hashlib.sha256(payload).hexdigest()
     return {"mime": mime, "extension": ALLOWED_MIMES[mime], "bytes": payload, "sha256": digest}
 
@@ -208,6 +229,8 @@ def _normalize_outputs(values: Any, special_types: set[int], decisions: list[dic
         target = item.get("target")
         if target not in {"main", "detail", "special"}:
             raise PlanValidationError("输出 target 无效")
+        if target != SLOT_TARGETS[slot_id]:
+            raise PlanValidationError(f"{slot_id} 图位只能写入 {SLOT_TARGETS[slot_id]}")
         if item.get("verdict") != "pass":
             raise PlanValidationError("计划只能包含人工 PASS 图片")
         checklist = _record(item.get("checklist"), "保真核对")
@@ -217,6 +240,10 @@ def _normalize_outputs(values: Any, special_types: set[int], decisions: list[dic
         output_id = _string(item.get("outputImageId"), "outputImageId")
         source_role = _string(item.get("sourceRole"), "sourceRole")
         processing = _string(item.get("processingMode"), "processingMode")
+        if source_role not in SOURCE_ROLES:
+            raise PlanValidationError("来源角色不在允许列表")
+        if processing not in PROCESSING_MODES:
+            raise PlanValidationError("图片处理模式不在允许列表")
         if source_role in DOCUMENT_ROLES and processing != "source-only":
             raise PlanValidationError("证照或背标只能原图直传，禁止 AI 生成")
         if processing != "source-only" and source_id == output_id:
@@ -277,6 +304,20 @@ def validate_and_normalize_plan(raw: Any, raw_config: Any) -> tuple[dict, list[d
     fingerprint = _string(inventory.get("fingerprint"), "图集指纹")
     fetched_at = _string(inventory.get("fetchedAt"), "图集读取时间")
     snapshot_images, special_types = _snapshot_images(inventory)
+    customized_main = inventory.get("customizedMain")
+    customized_detail = inventory.get("customizedDetail")
+    if not isinstance(customized_main, bool) or not isinstance(customized_detail, bool):
+        raise PlanValidationError("图集快照缺少自定义状态")
+    embedded_fingerprint = sha256_json({
+        "spuId": spu_id,
+        "mainImages": inventory["mainImages"],
+        "detailImages": inventory["detailImages"],
+        "specialImages": inventory["specialImages"],
+        "customizedMain": customized_main,
+        "customizedDetail": customized_detail,
+    })
+    if fingerprint != embedded_fingerprint:
+        raise PlanValidationError("计划图集指纹与内嵌快照不一致")
     decisions = _normalize_decisions(inventory, snapshot_images)
     outputs, assets = _normalize_outputs(plan.get("outputs"), special_types, decisions, config["maxImageBytes"])
     if plan.get("detachAcknowledged") is not True:
@@ -289,6 +330,8 @@ def validate_and_normalize_plan(raw: Any, raw_config: Any) -> tuple[dict, list[d
         "mainImages": copy.deepcopy(inventory["mainImages"]),
         "detailImages": copy.deepcopy(inventory["detailImages"]),
         "specialImages": copy.deepcopy(inventory["specialImages"]),
+        "customizedMain": customized_main,
+        "customizedDetail": customized_detail,
         "decisions": decisions,
     }
     normalized = {
@@ -305,6 +348,11 @@ def validate_and_normalize_plan(raw: Any, raw_config: Any) -> tuple[dict, list[d
         "detachAcknowledged": True,
         "createdAt": _string(plan.get("createdAt"), "createdAt"),
     }
+    desired_preview = build_desired_gallery(normalized, {item["slotId"]: f"pending://{item['slotId']}" for item in outputs})
+    if len(desired_preview["main"]) > config["maxMainImages"]:
+        raise PlanValidationError(f"最终主图数量超过主图上限 {config['maxMainImages']}")
+    if len(desired_preview["detail"]) > config["maxDetailImages"]:
+        raise PlanValidationError(f"最终详情图数量超过详情图上限 {config['maxDetailImages']}")
     return normalized, assets
 
 

@@ -68,7 +68,7 @@ class BridgeServiceTests(unittest.TestCase):
 
     def test_inventory_requires_numeric_spu_and_returns_authoritative_fingerprint(self):
         snapshot = self.service.inventory("123456789")
-        self.assertEqual(snapshot["fingerprint"], "inventory-fingerprint-a")
+        self.assertEqual(snapshot["fingerprint"], inventory()["fingerprint"])
         self.assertEqual(snapshot["mainImages"][0]["id"], "main:0")
         with self.assertRaisesRegex(ValueError, "数字"):
             self.service.inventory("../123")

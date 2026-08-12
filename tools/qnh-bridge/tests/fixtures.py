@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
+import json
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\nfixture-image"
 PNG_DATA_URL = "data:image/png;base64," + base64.b64encode(PNG_BYTES).decode("ascii")
@@ -25,8 +27,21 @@ def bridge_config(data_dir: str) -> dict:
     }
 
 
+def _fingerprint(value: dict) -> str:
+    payload = {
+        "spuId": value["spuId"],
+        "mainImages": value["mainImages"],
+        "detailImages": value["detailImages"],
+        "specialImages": value["specialImages"],
+        "customizedMain": value["customizedMain"],
+        "customizedDetail": value["customizedDetail"],
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def inventory() -> dict:
-    return {
+    value = {
         "spuId": "123456789",
         "productName": "测试商品 500ml",
         "mainImages": [
@@ -49,9 +64,10 @@ def inventory() -> dict:
         ],
         "customizedMain": False,
         "customizedDetail": False,
-        "fingerprint": "inventory-fingerprint-a",
         "fetchedAt": "2026-08-12T12:00:00Z",
     }
+    value["fingerprint"] = _fingerprint(value)
+    return value
 
 
 def _checklist() -> dict:
@@ -77,6 +93,8 @@ def plan() -> dict:
             "mainImages": copy.deepcopy(snap["mainImages"]),
             "detailImages": copy.deepcopy(snap["detailImages"]),
             "specialImages": copy.deepcopy(snap["specialImages"]),
+            "customizedMain": snap["customizedMain"],
+            "customizedDetail": snap["customizedDetail"],
             "decisions": [
                 {**copy.deepcopy(snap["mainImages"][0]), "imageId": "main:0", "decision": "keep", "reason": ""},
                 {**copy.deepcopy(snap["mainImages"][1]), "imageId": "main:1", "decision": "remove", "reason": "其他平台水印"},

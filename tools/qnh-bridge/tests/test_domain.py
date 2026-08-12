@@ -78,6 +78,12 @@ class PlanValidationTests(unittest.TestCase):
         swapped_url["inventory"]["decisions"][0]["url"] = "https://img.example/other.jpg"
         self.assert_invalid(swapped_url, "快照")
 
+    def test_rejects_a_fingerprint_that_does_not_match_the_embedded_snapshot(self):
+        tampered = plan()
+        tampered["inventory"]["mainImages"][0]["url"] = "https://img.example/tampered.jpg"
+        tampered["inventory"]["decisions"][0]["url"] = "https://img.example/tampered.jpg"
+        self.assert_invalid(tampered, "指纹")
+
     def test_requires_pass_checklist_and_distinct_ai_source(self):
         unchecked = plan()
         unchecked["outputs"][0]["checklist"]["brand"] = False
@@ -86,6 +92,19 @@ class PlanValidationTests(unittest.TestCase):
         same = plan()
         same["outputs"][0]["outputImageId"] = same["outputs"][0]["sourceImageId"]
         self.assert_invalid(same, "不能相同")
+
+    def test_enforces_slot_target_role_and_processing_mode_allowlists(self):
+        wrong_target = plan()
+        wrong_target["outputs"][0]["target"] = "detail"
+        self.assert_invalid(wrong_target, "图位")
+
+        wrong_role = plan()
+        wrong_role["outputs"][0]["sourceRole"] = "arbitrary_file"
+        self.assert_invalid(wrong_role, "来源角色")
+
+        wrong_mode = plan()
+        wrong_mode["outputs"][0]["processingMode"] = "shell"
+        self.assert_invalid(wrong_mode, "处理模式")
 
     def test_allows_source_only_document_but_rejects_generated_document(self):
         document = plan()
@@ -123,6 +142,10 @@ class PlanValidationTests(unittest.TestCase):
         wrong_mime["outputs"][0]["outputDataUrl"] = "data:image/svg+xml;base64,PHN2Zy8+"
         self.assert_invalid(wrong_mime, "PNG、JPEG 或 WebP")
 
+        bad_signature = plan()
+        bad_signature["outputs"][0]["outputDataUrl"] = "data:image/png;base64,bm90LWEtcG5n"
+        self.assert_invalid(bad_signature, "文件头")
+
         too_large = plan()
         config = {**self.config, "maxImageBytes": 4}
         with self.assertRaisesRegex(PlanValidationError, "大小上限"):
@@ -131,6 +154,11 @@ class PlanValidationTests(unittest.TestCase):
         no_ack = plan()
         no_ack["detachAcknowledged"] = False
         self.assert_invalid(no_ack, "解耦")
+
+    def test_enforces_configured_final_gallery_limits(self):
+        config = {**self.config, "maxMainImages": 1}
+        with self.assertRaisesRegex(PlanValidationError, "主图上限"):
+            validate_and_normalize_plan(plan(), config)
 
     def test_rejects_a_noop_plan(self):
         noop = plan()

@@ -9,7 +9,7 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from qnh_bridge.adapters import FakeQnhAdapter  # noqa: E402
+from qnh_bridge.adapters import FakeQnhAdapter, RealQnhAdapter  # noqa: E402
 from qnh_bridge.domain import normalize_bridge_config  # noqa: E402
 from qnh_bridge.server import create_http_server  # noqa: E402
 from qnh_bridge.service import BridgeService  # noqa: E402
@@ -27,7 +27,7 @@ def load_config(path: str) -> dict:
 def create_adapter(config: dict):
     if config["mode"] == "fake":
         return FakeQnhAdapter(config)
-    raise ValueError("real adapter 尚未配置；请先填写 pipelineRoot 和 qnhConfig")
+    return RealQnhAdapter(config)
 
 
 def main() -> int:
