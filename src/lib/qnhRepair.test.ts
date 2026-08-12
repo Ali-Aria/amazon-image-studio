@@ -16,6 +16,7 @@ import {
 } from './qnhRepair'
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo='
+const WEBP = 'data:image/webp;base64,UklGRgQAAABXRUJQ'
 
 function inventory(fingerprint = 'inventory-a'): QnhInventorySnapshot {
   return {
@@ -145,6 +146,19 @@ describe('QNH repair domain', () => {
     expect(getQnhRepairReadiness(draft).issues).toContain('剔除图片必须填写原因')
   })
 
+  it('blocks an all-keep plan when there are no PASS outputs', () => {
+    const draft = reviewedDraft()
+    draft.existingDecisions = Object.fromEntries(
+      Object.keys(draft.existingDecisions).map((id) => [id, { decision: 'keep' as const, reason: '' }]),
+    )
+    draft.outputReviews = {}
+
+    const readiness = getQnhRepairReadiness(draft)
+
+    expect(readiness.ready).toBe(false)
+    expect(readiness.issues).toContain('计划没有任何变更')
+  })
+
   it('requires distinct source/output images and all authenticity checks for PASS', () => {
     const draft = reviewedDraft()
     draft.outputReviews['01-main'] = passedReview({
@@ -227,6 +241,25 @@ describe('QNH repair domain', () => {
     expect(request.inventory.decisions.find((item) => item.imageId === 'main:1')).toMatchObject({ decision: 'remove', reason: '其他平台水印' })
     expect(request.outputs).toHaveLength(1)
     expect(request.outputs[0]).toMatchObject({ slotId: '01-main', target: 'main', sourceImageId: 'source-a', outputImageId: 'output-a' })
+  })
+
+  it('rejects WebP outputs before creating a plan against a real bridge', () => {
+    const project: RetailProject = createRetailProject(100)
+    project.qnhRepair = reviewedDraft()
+
+    expect(() => buildQnhRepairPlanRequest({
+      project,
+      health: {
+        version: '1.0.0',
+        mode: 'real',
+        storeName: '真实门店',
+        tenantId: '1013857',
+        storeId: '1312360',
+        busy: false,
+        activePlanId: null,
+      },
+      imageDataUrls: { 'source-a': PNG, 'output-a': WEBP },
+    })).toThrow('真实模式暂只允许 PNG 或 JPEG 输出')
   })
 
   it('synchronizes every available 7+1 output into an explicit review gate', () => {

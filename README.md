@@ -108,10 +108,24 @@ npm run dev
 npm run mock:api
 ```
 
+### 商品图修复与 QNH Bridge
+
+“商品图修复”会先读取 QNH 当前主图、详情图和特殊图，要求逐张保留或剔除，并对每张拟写入图片完成人工 PASS/REJECT 与包装保真核对。审核通过后生成不可变计划，再由本机 Bridge 受控执行；写入是否成功只以 fresh-fetch 后三类图集逐项 exact 一致为准。
+
+先用完全离线的演练模式走通流程：
+
+```bash
+npm run qnh:bridge:fake
+npm run dev
+```
+
+演练 SPU 为 `123456789`。真实模式配置、人工确认要求、固定接口和故障留痕见 [`tools/qnh-bridge/README.md`](tools/qnh-bridge/README.md)。自动测试不会触碰真实 QNH 门店。
+
 ## 验证
 
 ```bash
 npm test
+python3 -W error::ResourceWarning -m unittest discover -s tools/qnh-bridge/tests -v
 npm run build
 ```
 

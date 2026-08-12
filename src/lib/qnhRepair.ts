@@ -327,8 +327,9 @@ export function getQnhRepairReadiness(draft: QnhRepairDraft): QnhRepairReadiness
   })) issues.push('剔除图片必须填写原因')
 
   const outputReviews = Object.values(draft.outputReviews).filter((review): review is QnhOutputReview => Boolean(review))
+  const passedOutputs = outputReviews.filter((review) => review.verdict === 'pass')
   if (outputReviews.some((review) => review.verdict === 'unreviewed')) issues.push('还有拟写入图片未完成 PASS/REJECT 审核')
-  for (const review of outputReviews.filter((item) => item.verdict === 'pass')) {
+  for (const review of passedOutputs) {
     if (!review.sourceImageId || !review.outputImageId) issues.push(`${review.slotId} 缺少真实来源图或成图`)
     if (review.processingMode !== 'source-only' && review.sourceImageId && review.sourceImageId === review.outputImageId) {
       issues.push(`${review.slotId} 真实来源图不能与成图相同`)
@@ -339,13 +340,16 @@ export function getQnhRepairReadiness(draft: QnhRepairDraft): QnhRepairReadiness
       issues.push('证照或背标只能原图直传，禁止 AI 生成')
     }
   }
+  if (passedOutputs.length === 0 && images.every((image) => draft.existingDecisions[image.id]?.decision === 'keep')) {
+    issues.push('计划没有任何变更')
+  }
   if (!draft.detachAcknowledged) issues.push('必须确认门店级图片将与租户主档后续图片更新解耦')
   return {
     ready: issues.length === 0,
     issues: [...new Set(issues)],
     reviewedExisting: images.length - unreviewed.length,
     totalExisting: images.length,
-    passedOutputs: outputReviews.filter((review) => review.verdict === 'pass').length,
+    passedOutputs: passedOutputs.length,
   }
 }
 
@@ -364,6 +368,9 @@ export function buildQnhRepairPlanRequest(input: {
     const sourceDataUrl = input.imageDataUrls[review.sourceImageId]
     const outputDataUrl = input.imageDataUrls[review.outputImageId]
     if (!sourceDataUrl || !outputDataUrl) throw new Error(`${review.slotId} 的源图或成图尚未加载`)
+    if (input.health.mode === 'real' && /^data:image\/webp(?:;|,)/i.test(outputDataUrl)) {
+      throw new Error(`${review.slotId} 真实模式暂只允许 PNG 或 JPEG 输出`)
+    }
     return [{ ...review, verdict: 'pass' as const, sourceDataUrl, outputDataUrl }]
   })
   return {

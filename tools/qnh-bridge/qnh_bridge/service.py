@@ -111,12 +111,28 @@ class BridgeService:
 
             desired = build_desired_gallery(plan, uploaded_urls)
             current_phase = "write"
-            write_result = self.adapter.write_gallery(spu_id, desired, before)
-            self.repository.append_ledger(plan_id, "write", "pass", f"完整图集写入已提交：{write_result.get('message', write_result.get('code', 'ok'))}")
+            write_error: Exception | None = None
+            try:
+                write_result = self.adapter.write_gallery(spu_id, desired, before)
+                self.repository.append_ledger(plan_id, "write", "pass", f"完整图集写入已提交：{write_result.get('message', write_result.get('code', 'ok'))}")
+            except Exception as exc:
+                write_error = exc
+                message = str(exc) or exc.__class__.__name__
+                self.repository.append_ledger(plan_id, "write", "info", f"写入回执异常，立即 fresh-fetch 核验：{message}")
 
             current_phase = "verify"
-            verification = self.adapter.verify_gallery(spu_id, desired)
+            try:
+                verification = self.adapter.verify_gallery(spu_id, desired)
+            except Exception as exc:
+                if write_error is not None:
+                    write_message = str(write_error) or write_error.__class__.__name__
+                    verify_message = str(exc) or exc.__class__.__name__
+                    raise RuntimeError(f"写入回执异常（{write_message}）；fresh-fetch 核验失败（{verify_message}）") from exc
+                raise
             if verification.get("exact") is not True:
+                if write_error is not None:
+                    write_message = str(write_error) or write_error.__class__.__name__
+                    raise BridgeConflictError(f"写入回执异常（{write_message}），且写后 fresh-fetch 图集与计划不一致") from write_error
                 raise BridgeConflictError("写后 fresh-fetch 图集与计划不一致")
             (self.repository.plan_dir(plan_id) / "snapshot_after.json").write_text(
                 json.dumps(verification.get("inventory", {}), ensure_ascii=False, indent=2, sort_keys=True) + "\n",

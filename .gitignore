@@ -13,6 +13,8 @@ dev-proxy.config.json
 # Local dev/runtime state
 .amazon-image-studio-dev.pid
 .amazon-image-studio-deps.hash
+.qnh-bridge-data/
+tools/qnh-bridge/config*.local.json
 *.pid
 *.log
 npm-debug.log*

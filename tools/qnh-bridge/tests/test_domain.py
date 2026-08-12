@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import base64
 import pathlib
 import sys
 import tempfile
@@ -16,6 +17,9 @@ from qnh_bridge.domain import (  # noqa: E402
     validate_and_normalize_plan,
 )
 from fixtures import PNG_DATA_URL, bridge_config, plan  # noqa: E402
+
+
+WEBP_DATA_URL = "data:image/webp;base64," + base64.b64encode(b"RIFF\x04\x00\x00\x00WEBP").decode("ascii")
 
 
 class ConfigValidationTests(unittest.TestCase):
@@ -154,6 +158,14 @@ class PlanValidationTests(unittest.TestCase):
         no_ack = plan()
         no_ack["detachAcknowledged"] = False
         self.assert_invalid(no_ack, "解耦")
+
+    def test_real_mode_rejects_webp_outputs_before_plan_creation(self):
+        real_config = {**self.config, "mode": "real"}
+        webp = plan()
+        webp["outputs"][0]["outputDataUrl"] = WEBP_DATA_URL
+
+        with self.assertRaisesRegex(PlanValidationError, "真实模式暂只允许 PNG 或 JPEG 输出"):
+            validate_and_normalize_plan(webp, real_config)
 
     def test_enforces_configured_final_gallery_limits(self):
         config = {**self.config, "maxMainImages": 1}

@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "vite",
     "mock:api": "node scripts/mock-image-api.mjs",
+    "qnh:bridge:fake": "python3 tools/qnh-bridge/run.py --config tools/qnh-bridge/config.example.json",
     "build": "tsc -b && vite build",
     "deploy:cf": "npm run build && wrangler deploy",
     "preview": "vite preview",

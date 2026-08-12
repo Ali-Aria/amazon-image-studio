@@ -213,7 +213,7 @@ def _normalize_decisions(inventory: dict, snapshot_images: list[dict]) -> list[d
     return sorted(normalized, key=lambda item: order[item["imageId"]])
 
 
-def _normalize_outputs(values: Any, special_types: set[int], decisions: list[dict], max_bytes: int) -> tuple[list[dict], list[dict]]:
+def _normalize_outputs(values: Any, special_types: set[int], decisions: list[dict], max_bytes: int, mode: str) -> tuple[list[dict], list[dict]]:
     if not isinstance(values, list):
         raise PlanValidationError("outputs 必须是数组")
     outputs: list[dict] = []
@@ -260,6 +260,8 @@ def _normalize_outputs(values: Any, special_types: set[int], decisions: list[dic
             raise PlanValidationError("非特殊图不得携带 pictureType")
         source_asset = _decode_data_url(item.pop("sourceDataUrl", None), f"{slot_id} 来源图", max_bytes)
         output_asset = _decode_data_url(item.pop("outputDataUrl", None), f"{slot_id} 输出图", max_bytes)
+        if mode == "real" and output_asset["mime"] == "image/webp":
+            raise PlanValidationError(f"{slot_id} 真实模式暂只允许 PNG 或 JPEG 输出")
         if processing == "source-only" and source_asset["sha256"] != output_asset["sha256"]:
             raise PlanValidationError("source-only 图片必须与真实来源图字节一致")
         source_key = f"{slot_id}-source"
@@ -319,7 +321,7 @@ def validate_and_normalize_plan(raw: Any, raw_config: Any) -> tuple[dict, list[d
     if fingerprint != embedded_fingerprint:
         raise PlanValidationError("计划图集指纹与内嵌快照不一致")
     decisions = _normalize_decisions(inventory, snapshot_images)
-    outputs, assets = _normalize_outputs(plan.get("outputs"), special_types, decisions, config["maxImageBytes"])
+    outputs, assets = _normalize_outputs(plan.get("outputs"), special_types, decisions, config["maxImageBytes"], config["mode"])
     if plan.get("detachAcknowledged") is not True:
         raise PlanValidationError("必须确认门店级图片与租户主档后续更新解耦")
     if not outputs and all(item["decision"] == "keep" for item in decisions):

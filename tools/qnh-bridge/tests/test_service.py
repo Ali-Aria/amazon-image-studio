@@ -25,6 +25,7 @@ class RecordingFakeAdapter(FakeQnhAdapter):
         self.calls: list[str] = []
         self.fail_upload_at: int | None = None
         self.fail_write = False
+        self.raise_after_write = False
 
     def read_inventory(self, spu_id: str) -> dict:
         self.calls.append(f"read:{spu_id}")
@@ -41,7 +42,10 @@ class RecordingFakeAdapter(FakeQnhAdapter):
         self.calls.append(f"write:{spu_id}")
         if self.fail_write:
             raise RuntimeError("模拟写入失败")
-        return super().write_gallery(spu_id, desired, before)
+        result = super().write_gallery(spu_id, desired, before)
+        if self.raise_after_write:
+            raise RuntimeError("模拟写入回执异常")
+        return result
 
 
 class BridgeServiceTests(unittest.TestCase):
@@ -104,6 +108,20 @@ class BridgeServiceTests(unittest.TestCase):
         self.assertEqual(fresh["detailImages"][0]["url"], "https://img.example/detail-0.jpg")
         self.assertEqual(fresh["specialImages"][0]["images"][0]["url"].startswith("https://fake-upload.local/"), True)
         self.assertTrue((pathlib.Path(self.temp.name) / "plans" / summary["planId"] / "snapshot_before.json").is_file())
+
+    def test_write_receipt_error_still_succeeds_when_immediate_fresh_fetch_is_exact(self):
+        summary = self.create_plan()
+        self.adapter.raise_after_write = True
+
+        result = self.service.execute(summary["planId"], summary["confirmationPhrase"])
+
+        self.assertEqual(result["status"], "succeeded")
+        self.assertIsNone(result["error"])
+        write_entries = [entry for entry in result["ledger"] if entry["phase"] == "write"]
+        self.assertEqual(write_entries[-1]["status"], "info")
+        self.assertIn("模拟写入回执异常", write_entries[-1]["message"])
+        self.assertEqual(result["ledger"][-1]["phase"], "verify")
+        self.assertEqual(result["ledger"][-1]["status"], "pass")
 
     def test_stale_inventory_stops_before_upload_and_marks_failed(self):
         summary = self.create_plan()
