@@ -27,6 +27,8 @@ public/knowledge/product-index/
 # Test and tool output
 test-results/
 coverage/
+__pycache__/
+*.py[cod]
 .cache/
 .vite/
 .vitest/
