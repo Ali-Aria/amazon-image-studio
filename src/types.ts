@@ -367,6 +367,141 @@ export interface RetailProjectSlot {
   qualityStatus: 'unchecked' | 'pass' | 'warning' | 'blocked'
 }
 
+export type QnhExistingImageDecision = 'unreviewed' | 'keep' | 'remove'
+export type QnhGateVerdict = 'unreviewed' | 'pass' | 'reject'
+export type QnhInventoryImageKind = 'main' | 'detail' | 'special'
+export type QnhOutputTarget = 'main' | 'detail' | 'special'
+export type QnhPlanStatus = 'planned' | 'executing' | 'succeeded' | 'failed'
+
+export interface QnhInventoryImage {
+  id: string
+  kind: QnhInventoryImageKind
+  index: number
+  url: string
+  pictureType?: number
+}
+
+export interface QnhSpecialInventoryItem {
+  pictureType: number
+  label: string
+  required: boolean
+  images: QnhInventoryImage[]
+}
+
+export interface QnhInventorySnapshot {
+  spuId: string
+  productName: string
+  mainImages: QnhInventoryImage[]
+  detailImages: QnhInventoryImage[]
+  specialImages: QnhSpecialInventoryItem[]
+  customizedMain: boolean
+  customizedDetail: boolean
+  fingerprint: string
+  fetchedAt: string
+}
+
+export interface QnhExistingImageReview {
+  decision: QnhExistingImageDecision
+  reason: string
+}
+
+export interface QnhAuthenticityChecklist {
+  packagingText: boolean
+  brand: boolean
+  specification: boolean
+  color: boolean
+  unitCount: boolean
+  structure: boolean
+}
+
+export interface QnhOutputReview {
+  slotId: RetailSlotId
+  target: QnhOutputTarget
+  pictureType: number | null
+  sourceImageId: string
+  outputImageId: string
+  sourceRole: RetailSourceImageRole
+  processingMode: RetailImageProcessingMode
+  verdict: QnhGateVerdict
+  checklist: QnhAuthenticityChecklist
+  note: string
+}
+
+export interface QnhBridgeHealth {
+  version: string
+  mode: 'fake' | 'real'
+  storeName: string
+  tenantId: string
+  storeId: string
+  busy: boolean
+  activePlanId: string | null
+}
+
+export interface QnhPlanSummary {
+  planId: string
+  sha256: string
+  confirmationPhrase: string
+  addedMain: number
+  addedDetail: number
+  addedSpecial: number
+  removed: number
+  status: QnhPlanStatus
+}
+
+export interface QnhLedgerEntry {
+  ts: string
+  phase: string
+  status: 'info' | 'pass' | 'fail'
+  message: string
+}
+
+export interface QnhExecutionSummary {
+  planId: string
+  status: QnhPlanStatus
+  startedAt: string | null
+  finishedAt: string | null
+  error: string | null
+  ledger: QnhLedgerEntry[]
+}
+
+export interface QnhRepairDraft {
+  bridgeUrl: string
+  spuId: string
+  inventory: QnhInventorySnapshot | null
+  existingDecisions: Record<string, QnhExistingImageReview>
+  outputReviews: Partial<Record<RetailSlotId, QnhOutputReview>>
+  detachAcknowledged: boolean
+  planId: string | null
+  planSummary: QnhPlanSummary | null
+  execution: QnhExecutionSummary | null
+}
+
+export interface QnhRepairPlanRequest {
+  schemaVersion: 1
+  identity: Pick<QnhBridgeHealth, 'storeName' | 'tenantId' | 'storeId'>
+  product: {
+    spuId: string
+    name: string
+    barcode: string
+    sku: string
+  }
+  inventory: {
+    fingerprint: string
+    fetchedAt: string
+    mainImages: QnhInventoryImage[]
+    detailImages: QnhInventoryImage[]
+    specialImages: QnhSpecialInventoryItem[]
+    decisions: Array<QnhInventoryImage & QnhExistingImageReview & { imageId: string }>
+  }
+  outputs: Array<QnhOutputReview & {
+    verdict: 'pass'
+    sourceDataUrl: string
+    outputDataUrl: string
+  }>
+  detachAcknowledged: true
+  createdAt: string
+}
+
 export interface RetailProject {
   id: string
   title: string
@@ -382,6 +517,7 @@ export interface RetailProject {
   queuePaused: boolean
   plans: RetailImagePlan[]
   slots: RetailProjectSlot[]
+  qnhRepair: QnhRepairDraft
   createdAt: number
   updatedAt: number
 }

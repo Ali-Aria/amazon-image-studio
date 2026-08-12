@@ -18,7 +18,30 @@ describe('retail project state', () => {
     expect(project.slots.at(-1)?.slotId).toBe('08-special')
     expect(project.specialImageType).toBe('auto')
     expect(project.sourceImageRoles).toEqual({})
+    expect(project.qnhRepair.bridgeUrl).toBe('http://127.0.0.1:8768')
+    expect(project.qnhRepair.inventory).toBeNull()
     expect(project.slots.every((slot) => slot.status === 'idle')).toBe(true)
+  })
+
+  it('normalizes a persisted QNH repair draft without trusting malformed nested values', () => {
+    const normalized = normalizeRetailProject({
+      id: 'repair',
+      qnhRepair: {
+        bridgeUrl: 'http://localhost:8768',
+        spuId: '123456',
+        inventory: null,
+        existingDecisions: { a: { decision: 'remove', reason: '二维码' }, b: { decision: 'bad' } },
+        outputReviews: {},
+        detachAcknowledged: true,
+        planId: 'plan-1',
+      },
+    }, 200)
+
+    expect(normalized.qnhRepair.bridgeUrl).toBe('http://localhost:8768')
+    expect(normalized.qnhRepair.spuId).toBe('123456')
+    expect(normalized.qnhRepair.existingDecisions).toEqual({ a: { decision: 'remove', reason: '二维码' } })
+    expect(normalized.qnhRepair.detachAcknowledged).toBe(true)
+    expect(normalized.qnhRepair.planId).toBe('plan-1')
   })
 
   it('normalizes a partial persisted project without dropping known values', () => {

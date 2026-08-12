@@ -8,6 +8,7 @@ import type {
 } from '../types'
 import { RETAIL_SLOT_IDS } from './retailPlanner'
 import { createEmptyRetailProduct } from './retailProduct'
+import { createEmptyQnhRepairDraft, normalizeQnhRepairDraft } from './qnhRepair'
 
 export const RETAIL_PROJECTS_CHANGED_EVENT = 'instant-retail-projects-changed'
 
@@ -41,6 +42,7 @@ export function createRetailProject(now = Date.now()): RetailProject {
     queuePaused: false,
     plans: [],
     slots: RETAIL_PROJECT_SLOT_IDS.map(createEmptySlot),
+    qnhRepair: createEmptyQnhRepairDraft(),
     createdAt: now,
     updatedAt: now,
   }
@@ -107,6 +109,7 @@ export function normalizeRetailProject(value: unknown, now = Date.now()): Retail
       }
       return slot
     }),
+    qnhRepair: normalizeQnhRepairDraft(source.qnhRepair),
     concurrency: source.concurrency === 1 || source.concurrency === 2 || source.concurrency === 3 ? source.concurrency : 2,
     batchStartIndex: source.batchStartIndex === 2 ? 2 : 1,
     queuePaused: false,
